@@ -25,6 +25,5 @@ pub fn with_connection_test() {
     db.execute(sql, db.conn, [], None)
   }
 
-  result
-  |> should.be_ok
+  result |> should.be_ok
 }

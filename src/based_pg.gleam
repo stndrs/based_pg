@@ -1,12 +1,9 @@
-// gleam
+import based.{type DB, type Returned, type Value, DB, Returned}
 import gleam/dynamic
 import gleam/list
 import gleam/option.{type Option, Some}
 import gleam/pgo.{type Connection}
 import gleam/result
-
-// based
-import based.{type DB, type Query, type Returned, type Value, DB, Returned}
 
 pub type Config {
   Config(
@@ -16,10 +13,6 @@ pub type Config {
     username: String,
     password: String,
   )
-}
-
-pub fn to_sql(_query: Query(a)) -> String {
-  ""
 }
 
 pub fn with_connection(
