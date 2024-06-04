@@ -1,7 +1,9 @@
-import based.{type DB, type Returned, type Value, DB, Returned}
+import based.{
+  type DB, type Query, type Returned, type Value, DB, Query, Returned,
+}
 import gleam/dynamic
 import gleam/list
-import gleam/option.{type Option, Some}
+import gleam/option.{Some}
 import gleam/pgo.{type Connection}
 import gleam/result
 
@@ -30,15 +32,12 @@ pub fn with_connection(
   result
 }
 
-fn execute(
-  sql: String,
-  conn: Connection,
-  values: List(Value),
-  expecting: Option(dynamic.Decoder(a)),
-) -> Result(Returned(a), Nil) {
-  let values = to_pgo_values(values)
+fn execute(query: Query(a), conn: Connection) -> Result(Returned(a), Nil) {
+  let Query(sql, args, maybe_decoder) = query
 
-  let execution = case expecting {
+  let values = to_pgo_values(args)
+
+  let execution = case maybe_decoder {
     Some(decoder) -> {
       pgo.execute(sql, conn, values, decoder)
       |> result.map(fn(ret) { Returned(ret.count, ret.rows) })

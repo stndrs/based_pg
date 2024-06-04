@@ -1,3 +1,4 @@
+import based.{Query}
 import based_pg
 import gleam/option.{None}
 import gleeunit
@@ -20,9 +21,7 @@ pub fn with_connection_test() {
   let result = {
     use db <- based_pg.with_connection(config)
 
-    let sql = "SELECT 1"
-
-    db.execute(sql, db.conn, [], None)
+    Query(sql: "SELECT 1", args: [], decoder: None) |> db.execute(db.conn)
   }
 
   result |> should.be_ok
