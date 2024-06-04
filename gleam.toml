@@ -13,9 +13,9 @@ version = "1.0.0"
 # https://gleam.run/writing-gleam/gleam-toml/. 
 
 [dependencies]
-gleam_stdlib = "~> 0.34 or ~> 1.0"
+gleam_stdlib = "~> 0.38 or ~> 1.0"
 based = { path = "../based" }
-gleam_pgo = "~> 0.7"
+gleam_pgo = "~> 0.10"
 
 [dev-dependencies]
 gleeunit = "~> 1.0"
