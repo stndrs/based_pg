@@ -10,14 +10,25 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+
+        env:
+          POSTGRES_PASSWORD: based_pg_password
+          POSTGRES_USER: postgres
+          POSTGRES_DB: based_pg
+        ports:
+          - 54322:5432
+
     steps:
       - uses: actions/checkout@v3
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26.0.2"
-          gleam-version: "1.0.0"
+          gleam-version: "1.2.0"
           rebar3-version: "3"
-          # elixir-version: "1.15.4"
+
       - run: gleam deps download
       - run: gleam test
       - run: gleam format --check src test
