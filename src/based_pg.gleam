@@ -19,8 +19,8 @@ pub type Config {
 
 pub fn with_connection(
   config: Config,
-  callback: fn(DB(a, Connection)) -> Result(Returned(a), Nil),
-) -> Result(Returned(a), Nil) {
+  callback: fn(DB(a, Connection)) -> t,
+) -> t {
   let conn = connect(config)
 
   let result =

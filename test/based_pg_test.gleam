@@ -18,11 +18,14 @@ pub fn with_connection_test() {
     )
 
   let result = {
-    use db <- based_pg.with_connection(config)
+    use db <- based.register(based_pg.with_connection, config)
 
     based.new_query("SELECT 1")
     |> based.exec(db)
+    |> should.be_ok
+
+    Nil
   }
 
-  result |> should.be_ok
+  result |> should.equal(Nil)
 }
