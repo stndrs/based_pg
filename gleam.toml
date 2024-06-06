@@ -1,5 +1,5 @@
 name = "based_pg"
-version = "1.0.0"
+version = "2.0.0"
 description = "A postgres adapter for based"
 gleam = "~> 1.0"
 
@@ -9,7 +9,7 @@ repository = { type = "github", user = "stndrs", repo = "based_pg" }
 [dependencies]
 gleam_stdlib = "~> 0.38 or ~> 1.0"
 gleam_pgo = "~> 0.10"
-based = ">= 1.0.0 and < 2.0.0"
+based = ">= 2.0.0 and < 3.0.0"
 
 [dev-dependencies]
 gleeunit = "~> 1.0"
