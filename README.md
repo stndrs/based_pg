@@ -31,7 +31,8 @@ Further documentation can be found at <https://hexdocs.pm/based_pg>.
 ## Development
 
 ```sh
-gleam run   # Run the project
-gleam test  # Run the tests
-gleam shell # Run an Erlang shell
+docker-compose up # Starts postgres and adminer in docker containers. Required for running tests
+gleam run         # Run the project
+gleam test        # Run the tests
+gleam shell       # Run an Erlang shell
 ```
