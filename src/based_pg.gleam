@@ -14,7 +14,13 @@ pub type Config {
     database: String,
     username: String,
     password: String,
+    ip_version: IpVersion,
   )
+}
+
+pub type IpVersion {
+  Ipv4
+  Ipv6
 }
 
 pub fn with_connection(
@@ -53,22 +59,19 @@ fn execute(query: Query(a), conn: Connection) -> Result(Returned(a), Nil) {
 }
 
 fn connect(config: Config) -> Connection {
-  let Config(host, port, database, user, password) = config
-
-  let conn =
-    pgo.connect(
-      pgo.Config(
-        ..pgo.default_config(),
-        host: host,
-        port: port,
-        database: database,
-        user: user,
-        password: Some(password),
-        pool_size: 5,
-      ),
-    )
-
-  conn
+  let Config(host, port, database, user, password, ip_version) = config
+  pgo.connect(
+    pgo.Config(
+      ..pgo.default_config(),
+      host: host,
+      port: port,
+      database: database,
+      user: user,
+      password: Some(password),
+      pool_size: 5,
+      ip_version: to_pgo_ip_version(ip_version),
+    ),
+  )
 }
 
 fn to_pgo_values(values: List(Value)) -> List(pgo.Value) {
@@ -82,4 +85,11 @@ fn to_pgo_values(values: List(Value)) -> List(pgo.Value) {
       based.Null -> pgo.null()
     }
   })
+}
+
+fn to_pgo_ip_version(ip_version: IpVersion) {
+  case ip_version {
+    Ipv6 -> pgo.Ipv6
+    Ipv4 -> pgo.Ipv4
+  }
 }
