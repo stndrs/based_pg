@@ -20,7 +20,7 @@ const sql = "DELETE FROM users WHERE id=$1;"
 pub fn main() {
   let config = load_config()
 
-  use db <- based.register(based_pg.with_connection(config))
+  use db <- based.register(based_pg.adapter(config))
 
   based.new_query(sql)
   |> based.with_values([based.int(1)])
