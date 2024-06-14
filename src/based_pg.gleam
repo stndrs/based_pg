@@ -1,11 +1,14 @@
 import based.{
-  type DB, type Query, type Returned, type Value, DB, Query, Returned,
+  type BasedAdapter, type BasedError, type Query, type Value, BasedAdapter,
+  BasedError, Query,
 }
-import gleam/dynamic
+import gleam/dynamic.{type Dynamic}
+import gleam/int
 import gleam/list
 import gleam/option.{Some}
-import gleam/pgo.{type Connection}
+import gleam/pgo.{type Connection, type QueryError, Returned}
 import gleam/result
+import gleam/string
 
 pub type Config {
   Config(
@@ -17,39 +20,73 @@ pub type Config {
   )
 }
 
-pub fn with_connection(
-  config: Config,
-  callback: fn(DB(a, Connection)) -> t,
-) -> t {
-  let conn = connect(config)
+/// Returns a `BasedAdapter` that can be passed into `based.register`.
+pub fn adapter(config: Config) -> BasedAdapter(Config, Connection, t) {
+  BasedAdapter(with_connection: with_connection, conf: config, service: execute)
+}
 
-  let result =
-    DB(conn: conn, execute: execute)
-    |> callback
+fn with_connection(config: Config, callback: fn(Connection) -> t) -> t {
+  let conn = connect(config)
+  let result = callback(conn)
 
   pgo.disconnect(conn)
-
   result
 }
 
-fn execute(query: Query(a), conn: Connection) -> Result(Returned(a), Nil) {
-  let Query(sql, args, maybe_decoder) = query
+fn execute(query: Query, conn: Connection) -> Result(List(Dynamic), BasedError) {
+  let Query(sql, args) = query
+  let values = args |> to_pgo_values
 
-  let values = to_pgo_values(args)
+  pgo.execute(sql, conn, values, dynamic.dynamic)
+  |> result.map(fn(returned) {
+    let Returned(_count, rows) = returned
+    rows
+  })
+  |> result.map_error(to_based_error)
+}
 
-  let execution = case maybe_decoder {
-    Some(decoder) -> {
-      pgo.execute(sql, conn, values, decoder)
-      |> result.map(fn(ret) { Returned(ret.count, ret.rows) })
-    }
-    _ -> {
-      pgo.execute(sql, conn, values, dynamic.dynamic)
-      |> result.replace(Returned(0, []))
-    }
+// TODO: improve error handling
+fn to_based_error(error: QueryError) -> BasedError {
+  case error {
+    pgo.ConstraintViolated(msg, constraint, _detail) ->
+      BasedError(code: "constraint_violated", name: constraint, message: msg)
+    pgo.PostgresqlError(code, name, message) -> BasedError(code, name, message)
+    pgo.UnexpectedArgumentCount(expected, got) ->
+      BasedError(
+        code: "unexpected_argument_count",
+        name: "",
+        message: "Expected "
+          <> int.to_string(expected)
+          <> ", got "
+          <> int.to_string(got),
+      )
+    pgo.UnexpectedArgumentType(expected, got) ->
+      BasedError(
+        code: "unexpected_argument_count",
+        name: "",
+        message: "Expected " <> expected <> ", got " <> got,
+      )
+    pgo.UnexpectedResultType(decode_errors) ->
+      BasedError(
+        code: "unexpected_result_type",
+        name: "",
+        message: decode_error_message(decode_errors),
+      )
+    pgo.ConnectionUnavailable ->
+      BasedError(code: "connection_unavailable", name: "", message: "")
   }
+}
 
-  execution
-  |> result.replace_error(Nil)
+fn decode_error_message(errors: dynamic.DecodeErrors) -> String {
+  let assert [dynamic.DecodeError(expected, actual, path), ..] = errors
+  let path = string.join(path, ".")
+
+  "Decoder failed, expected "
+  <> expected
+  <> ", got "
+  <> actual
+  <> " in "
+  <> path
 }
 
 fn connect(config: Config) -> Connection {
