@@ -1,5 +1,5 @@
 name = "based_pg"
-version = "3.0.0"
+version = "3.0.1"
 description = "A postgres adapter for based"
 gleam = "~> 1.0"
 
