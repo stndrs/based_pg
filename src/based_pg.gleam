@@ -5,20 +5,9 @@ import based.{
 import gleam/dynamic.{type Dynamic}
 import gleam/int
 import gleam/list
-import gleam/option.{Some}
-import gleam/pgo.{type Connection, type QueryError, Returned}
+import gleam/pgo.{type Config, type Connection, type QueryError, Returned}
 import gleam/result
 import gleam/string
-
-pub type Config {
-  Config(
-    host: String,
-    port: Int,
-    database: String,
-    username: String,
-    password: String,
-  )
-}
 
 /// Returns a `BasedAdapter` that can be passed into `based.register`.
 pub fn adapter(config: Config) -> BasedAdapter(Config, Connection, t) {
@@ -26,7 +15,7 @@ pub fn adapter(config: Config) -> BasedAdapter(Config, Connection, t) {
 }
 
 fn with_connection(config: Config, callback: fn(Connection) -> t) -> t {
-  let conn = connect(config)
+  let conn = pgo.connect(config)
   let result = callback(conn)
 
   pgo.disconnect(conn)
@@ -87,25 +76,6 @@ fn decode_error_message(errors: dynamic.DecodeErrors) -> String {
   <> actual
   <> " in "
   <> path
-}
-
-fn connect(config: Config) -> Connection {
-  let Config(host, port, database, user, password) = config
-
-  let conn =
-    pgo.connect(
-      pgo.Config(
-        ..pgo.default_config(),
-        host: host,
-        port: port,
-        database: database,
-        user: user,
-        password: Some(password),
-        pool_size: 5,
-      ),
-    )
-
-  conn
 }
 
 fn to_pgo_values(values: List(Value)) -> List(pgo.Value) {

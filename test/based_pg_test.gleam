@@ -1,6 +1,8 @@
 import based
 import based_pg
 import gleam/dynamic
+import gleam/option.{Some}
+import gleam/pgo
 import gleeunit
 import gleeunit/should
 
@@ -9,17 +11,8 @@ pub fn main() {
 }
 
 pub fn with_connection_test() {
-  let config =
-    based_pg.Config(
-      host: "localhost",
-      port: 54_322,
-      database: "based_pg",
-      username: "postgres",
-      password: "based_pg_password",
-    )
-
   let result = {
-    use db <- based.register(based_pg.adapter(config))
+    use db <- based.register(based_pg.adapter(default_config()))
 
     based.new_query("SELECT 1")
     |> based.execute(db)
@@ -32,17 +25,8 @@ pub fn with_connection_test() {
 }
 
 pub fn multiple_queries_with_register() {
-  let config =
-    based_pg.Config(
-      host: "localhost",
-      port: 54_322,
-      database: "based_pg",
-      username: "postgres",
-      password: "based_pg_password",
-    )
-
   let result = {
-    use conn <- based.register(based_pg.adapter(config))
+    use conn <- based.register(based_pg.adapter(default_config()))
 
     let decoder =
       dynamic.decode1(fn(int) { int }, dynamic.element(0, dynamic.int))
@@ -66,4 +50,16 @@ pub fn multiple_queries_with_register() {
 
   ret |> should.equal(1)
   ret_two |> should.equal("2")
+}
+
+fn default_config() -> pgo.Config {
+  pgo.Config(
+    ..pgo.default_config(),
+    host: "localhost",
+    port: 54_322,
+    database: "based_pg",
+    user: "postgres",
+    password: Some("based_pg_password"),
+    pool_size: 5,
+  )
 }
