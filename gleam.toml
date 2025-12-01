@@ -1,15 +1,20 @@
 name = "based_pg"
-version = "4.0.0"
+version = "5.0.0"
 description = "A postgres adapter for based"
-gleam = "~> 1.0"
 
-licences = ["Apache-2.0"]
 repository = { type = "github", user = "stndrs", repo = "based_pg" }
 
 [dependencies]
-gleam_stdlib = "~> 0.38 or ~> 1.0"
-gleam_pgo = "~> 0.10"
-based = ">= 3.0.0 and < 4.0.0"
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+gleam_time = ">= 1.6.0 and < 2.0.0"
+gleam_erlang = ">= 1.3.0 and < 2.0.0"
+gleam_otp = ">= 1.2.0 and < 2.0.0"
+based = { git = "https://github.com/stndrs/based.git", ref = "v4" }
+pgl = { git = "https://github.com/stndrs/pgl.git", ref = "main" }
+pg_value = { git = "https://github.com/stndrs/pg_value.git", ref = "main" }
+pgl_types = { git = "https://github.com/stndrs/pgl_types.git", ref = "main" }
 
 [dev-dependencies]
-gleeunit = "~> 1.0"
+gleeunit = ">= 1.0.0 and < 2.0.0"
+exception = ">= 2.1.0 and < 3.0.0"
+global_value = ">= 1.0.0 and < 2.0.0"
