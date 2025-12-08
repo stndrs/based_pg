@@ -14,7 +14,7 @@ import gleam/time/duration
 import gleam/time/timestamp
 import gleeunit/should
 import global_value
-import pg/value
+import pgl/value
 
 fn global_db() -> pg.Db {
   global_value.create_with_unique_name("pg_db_test", fn() {

@@ -9,8 +9,8 @@ import gleam/otp/actor
 import gleam/otp/static_supervisor.{type Supervisor}
 import gleam/otp/supervision
 import gleam/result
-import pg/value.{type Value}
 import pgl
+import pgl/value.{type Value}
 
 pub type Config {
   Config(
@@ -91,9 +91,6 @@ fn to_pgl_config(config: Config) -> pgl.Config {
   |> pgl.username(config.user)
   |> pgl.password(config.password)
   |> pgl.database(config.database)
-  |> pgl.timeout(config.timeout)
-  |> pgl.ping_timeout(config.ping_timeout)
-  |> pgl.recv_timeout(config.recv_timeout)
   |> pgl.ssl(ssl)
 }
 
