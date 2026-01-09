@@ -2,15 +2,14 @@ import based/db
 import based/sql
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
-import gleam/erlang/process.{type Pid}
 import gleam/function
 import gleam/int
 import gleam/otp/actor
 import gleam/otp/static_supervisor.{type Supervisor}
 import gleam/otp/supervision
 import gleam/result
+import pg_value.{type Value} as value
 import pgl
-import pgl/value.{type Value}
 
 pub type Config {
   Config(
@@ -111,20 +110,10 @@ pub type Connection {
   Connection(conn: pgl.Connection, fmt: sql.SqlFmt(Value))
 }
 
-pub fn with_connection(
-  db: Db,
-  next: fn(Connection) -> t,
-) -> Result(t, db.DbError) {
-  let self = process.self()
+pub fn connection(db: Db) -> Connection {
+  let conn = pgl.connection(db.pgl)
 
-  use pgl_conn <- result.map(checkout(db.pgl, self))
-
-  let conn = Connection(conn: pgl_conn, fmt: db.fmt)
-  let res = next(conn)
-
-  pgl.checkin(db.pgl, pgl_conn, self)
-
-  res
+  Connection(conn:, fmt: db.fmt)
 }
 
 pub fn new(conf: Config) -> Db {
@@ -150,24 +139,17 @@ pub fn shutdown(db: Db) -> Nil {
   Nil
 }
 
-fn checkout(pool: pgl.Db, caller: Pid) -> Result(pgl.Connection, db.DbError) {
-  pgl.checkout(pool, caller)
-  |> result.map_error(fn(err) {
-    echo err
-
-    db.DbError("Checkout error")
-  })
-}
-
 pub fn execute(sql: String, conn: Connection) -> Result(Int, db.DbError) {
-  pgl.exec(sql, conn.conn) |> result.map_error(handle_error)
+  pgl.execute(sql, conn.conn) |> result.map_error(handle_error)
 }
 
 fn handle_error(err: pgl.PglError) -> db.DbError {
   case err {
-    pgl.PglError(message:) -> db.DbError(message: "pgl error: " <> message)
     pgl.PostgresError(code:, name:, message:, fields:) ->
       handle_postgres_error(code, name, message, fields)
+    pgl.ConnectionError(message:) -> db.ConnectionError(message:)
+    pgl.ConnectionTimeout -> db.ConnectionTimeout
+    pgl_error -> db.DbError(message: pgl.error_to_string(pgl_error))
   }
 }
 
@@ -175,21 +157,61 @@ fn handle_postgres_error(
   code: String,
   name: String,
   message: String,
-  _fields: Dict(String, String),
+  fields: Dict(pgl.Field, String),
 ) -> db.DbError {
-  // let code = db.ErrorCode(code:, name:)
-
-  // case dict.get(fields, error.Constraint) {
-  //   Ok(_message) -> db.ConstraintError(code:, message:)
-  //   _ -> db.DatabaseError(code:, message:)
-  // }
-
-  case code {
-    "23505" -> db.ConstraintError(code:, name:, message:)
-    "23502" -> db.ConstraintError(code:, name:, message:)
-    "42P01" -> db.DatabaseError(code:, name:, message:)
-    "42601" -> db.SyntaxError(code:, name:, message:)
-    _ -> db.DbError(message:)
+  case dict.has_key(fields, pgl.Constraint) {
+    True -> db.ConstraintError(code:, name:, message:)
+    False -> {
+      case code {
+        // constraint error codes
+        "23000" | "23001" | "23502" | "23503" | "23505" | "23514" | "23P01" ->
+          db.ConstraintError(code:, name:, message:)
+        // syntax error codes
+        "42601"
+        | "42846"
+        | "42803"
+        | "42P20"
+        | "42P19"
+        | "42830"
+        | "42602"
+        | "42622"
+        | "42939"
+        | "42804"
+        | "42P18"
+        | "42P21"
+        | "42P22"
+        | "42809"
+        | "428C9"
+        | "42703"
+        | "42883"
+        | "42P01"
+        | "42P02"
+        | "42704"
+        | "42701"
+        | "42P03"
+        | "42P04"
+        | "42723"
+        | "42P05"
+        | "42P06"
+        | "42P07"
+        | "42712"
+        | "42710"
+        | "42702"
+        | "42725"
+        | "42P08"
+        | "42P09"
+        | "42P10"
+        | "42611"
+        | "42P11"
+        | "42P12"
+        | "42P13"
+        | "42P14"
+        | "42P15"
+        | "42P16"
+        | "42P17" -> db.SyntaxError(code:, name:, message:)
+        _ -> db.DatabaseError(code:, name:, message:)
+      }
+    }
   }
 }
 
@@ -197,7 +219,9 @@ pub fn query(
   query: db.Query(Value),
   conn: Connection,
 ) -> Result(db.Queried, db.DbError) {
-  pgl.query(query.sql, query.values, conn.conn)
+  pgl.sql(query.sql)
+  |> pgl.params(query.values)
+  |> pgl.query(conn.conn)
   |> result.map_error(handle_error)
   |> result.map(fn(pgl_queried) {
     let pgl.Queried(count:, fields:, rows:) = pgl_queried
@@ -211,7 +235,9 @@ pub fn all(
   conn: Connection,
   decoder: fn() -> Decoder(a),
 ) -> Result(db.Returning(a), db.DbError) {
-  pgl.query(query.sql, query.values, conn.conn)
+  pgl.sql(query.sql)
+  |> pgl.params(query.values)
+  |> pgl.query(conn.conn)
   |> result.map_error(handle_error)
   |> result.try(fn(pgl_queried) {
     let pgl.Queried(count:, fields:, rows:) = pgl_queried
@@ -234,7 +260,7 @@ pub fn transaction(
 
 pub fn begin(conn: Connection) -> Result(Connection, db.TransactionError(err)) {
   pgl.begin(conn.conn)
-  |> result.replace(conn)
+  |> result.map(fn(pgl_conn) { Connection(..conn, conn: pgl_conn) })
   |> result.map_error(to_transaction_error)
 }
 
@@ -243,20 +269,14 @@ fn pgl_tx_err_to_db_tx_err(
 ) -> db.TransactionError(err) {
   case err {
     pgl.RollbackError(cause:) -> db.Rollback(cause:)
-    pgl.NotInTransaction(message:) -> db.TransactionError(message:)
-    pgl.FailedTransaction(message: _, cause:) -> {
-      cause
-      |> handle_error
-      |> db.error_to_string
-      |> db.TransactionError
-    }
-    pgl.TransactionError -> db.TransactionError("Transaction failed")
+    pgl.NotInTransaction -> db.NotInTransaction
+    pgl.TransactionError(message:) -> db.TransactionError(message:)
   }
 }
 
 pub fn commit(conn: Connection) -> Result(Connection, db.TransactionError(err)) {
   pgl.commit(conn.conn)
-  |> result.replace(conn)
+  |> result.map(fn(pgl_conn) { Connection(..conn, conn: pgl_conn) })
   |> result.map_error(to_transaction_error)
 }
 
@@ -264,7 +284,7 @@ pub fn rollback(
   conn: Connection,
 ) -> Result(Connection, db.TransactionError(err)) {
   pgl.rollback(conn.conn)
-  |> result.replace(conn)
+  |> result.map(fn(pgl_conn) { Connection(..conn, conn: pgl_conn) })
   |> result.map_error(to_transaction_error)
 }
 
@@ -272,6 +292,7 @@ fn to_transaction_error(
   err: pgl.TransactionError(pgl.PglError),
 ) -> db.TransactionError(err) {
   case pgl_tx_err_to_db_tx_err(err) {
+    db.NotInTransaction -> db.NotInTransaction
     db.Rollback(cause:) -> {
       cause
       |> handle_error

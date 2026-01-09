@@ -10,11 +10,11 @@ import gleam/dynamic/decode
 import gleam/list
 import gleam/result
 import gleam/time/calendar
-import gleam/time/duration
 import gleam/time/timestamp
 import gleeunit/should
 import global_value
-import pgl/value
+import pg_value as value
+import pg_value/interval
 
 fn global_db() -> pg.Db {
   global_value.create_with_unique_name("pg_db_test", fn() {
@@ -32,11 +32,9 @@ fn global_db() -> pg.Db {
 }
 
 fn connect(next: fn(pg.Connection) -> a) -> a {
-  let db = global_db()
-
-  let assert Ok(res) = pg.with_connection(db, next)
-
-  res
+  global_db()
+  |> pg.connection
+  |> next
 }
 
 const drop_users_sql = "DROP TABLE IF EXISTS users"
@@ -116,7 +114,7 @@ pub fn bind_float_test() {
 
   let assert Ok(queried) =
     db.sql("select $1::float4")
-    |> db.values([value.float(12_345.6789)])
+    |> db.params([value.float(12_345.6789)])
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -127,7 +125,7 @@ pub fn bind_text_test() {
 
   let assert Ok(queried) =
     db.sql("select $1::text")
-    |> db.values([value.text("hello")])
+    |> db.params([value.text("hello")])
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -138,7 +136,7 @@ pub fn bind_blob_test() {
 
   let assert Ok(queried) =
     db.sql("select $1::bytea")
-    |> db.values([value.bytea(<<123, 0>>)])
+    |> db.params([value.bytea(<<123, 0>>)])
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -149,7 +147,7 @@ pub fn bind_bool_test() {
 
   let assert Ok(queried) =
     db.sql("select $1::bool")
-    |> db.values([value.Bool(True)])
+    |> db.params([value.Bool(True)])
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -427,7 +425,7 @@ pub fn table_not_exist_error_test() {
     |> select.to_query(conn.fmt)
     |> db.query(conn, pg.query)
 
-  let assert db.DatabaseError(code:, name:, message:) = error
+  let assert db.SyntaxError(code:, name:, message:) = error
 
   code |> should.equal("42P01")
   name |> should.equal("undefined_table")
@@ -444,7 +442,7 @@ pub fn date_bind_test() {
 
   let queried =
     db.sql("SELECT $1::date")
-    |> db.values([value.date(date)])
+    |> db.params([value.date(date)])
     |> db.query(conn, pg.query)
     |> should.be_ok
 
@@ -502,53 +500,62 @@ pub fn date_roundtrip_test() {
   returned |> list.length |> should.equal(5)
 }
 
-pub fn duration_bind_test() {
+pub fn interval_bind_test() {
   use conn <- connect()
 
-  // 1 hour
-  let dur = duration.seconds(3600)
+  let interval = interval.seconds(3600)
 
   let queried =
     db.sql("SELECT $1::interval")
-    |> db.values([value.interval(dur)])
+    |> db.params([value.interval(interval)])
     |> db.query(conn, pg.query)
     |> should.be_ok
 
   queried.count |> should.equal(1)
-  queried.rows |> should.equal([dynamic.array([dynamic.int(3_600_000_000)])])
+  queried.rows
+  |> should.equal([
+    dynamic.array([
+      dynamic.array([dynamic.int(0), dynamic.int(0), dynamic.int(3_600_000_000)]),
+    ]),
+  ])
 }
 
-pub fn duration_roundtrip_test() {
+pub fn interval_roundtrip_test() {
   use conn <- connect()
 
-  "DROP TABLE IF EXISTS duration_test"
+  "DROP TABLE IF EXISTS interval_test"
   |> db.execute(conn, pg.execute)
   |> should.be_ok
 
-  "CREATE TABLE duration_test (id SERIAL PRIMARY KEY, dur_col INTERVAL)"
+  "CREATE TABLE interval_test (id SERIAL PRIMARY KEY, dur_col INTERVAL)"
   |> db.execute(conn, pg.execute)
   |> should.be_ok
 
-  let duration_test = sql.name("duration_test") |> sql.table
+  let interval_test = sql.name("interval_test") |> sql.table
 
-  let durations = [
+  let intervals = [
     // 1 minute
-    duration.seconds(60),
+    interval.seconds(60),
     // 1 hour
-    duration.seconds(3600),
+    interval.seconds(3600),
     // 1 day
-    duration.seconds(86_400),
+    interval.seconds(86_400),
     // 1 week
-    duration.seconds(604_800),
-    // 30 days (approx. 1 month)
-    duration.seconds(2_592_000),
+    interval.seconds(604_800),
+    // 1 month
+    interval.months(1),
+    // 1 month, 1 day, 300 seconds, 500 milliseconds
+    interval.months(1)
+      |> interval.add(interval.days(1))
+      |> interval.add(interval.seconds(300))
+      |> interval.add(interval.microseconds(500)),
   ]
 
   {
-    use dur <- list.each(durations)
+    use dur <- list.each(intervals)
 
     let assert Ok(queried) =
-      insert.into(duration_test)
+      insert.into(interval_test)
       |> insert.columns(["dur_col"])
       |> insert.values([[sql.value(dur, of: value.interval)]])
       |> insert.returning(["dur_col"])
@@ -559,22 +566,26 @@ pub fn duration_roundtrip_test() {
   }
 
   let assert Ok(queried) =
-    select.from(duration_test)
+    select.from(interval_test)
     |> select.columns(["dur_col"])
     |> select.to_query(conn.fmt)
     |> db.query(conn, pg.query)
 
-  queried.count |> should.equal(5)
+  queried.count |> should.equal(6)
 
-  let assert Ok(_) = db.decode(queried, duration_decoder)
-}
+  let assert Ok(returning) =
+    db.decode(queried, fn() { decode.list(of: interval.decoder()) })
 
-fn duration_decoder() -> decode.Decoder(duration.Duration) {
-  use dur_val <- decode.field(0, decode.int)
+  let expected_intervals = [
+    interval.Interval(months: 0, days: 0, seconds: 60, microseconds: 0),
+    interval.Interval(months: 0, days: 0, seconds: 3600, microseconds: 0),
+    interval.Interval(months: 0, days: 0, seconds: 86_400, microseconds: 0),
+    interval.Interval(months: 0, days: 0, seconds: 604_800, microseconds: 0),
+    interval.Interval(months: 1, days: 0, seconds: 0, microseconds: 0),
+    interval.Interval(months: 1, days: 1, seconds: 300, microseconds: 500),
+  ]
 
-  dur_val
-  |> duration.nanoseconds
-  |> decode.success
+  assert expected_intervals == list.flatten(returning.rows)
 }
 
 // Time tests
@@ -592,7 +603,7 @@ pub fn time_bind_test() {
 
   let queried =
     db.sql("SELECT $1::time")
-    |> db.values([value.time(time)])
+    |> db.params([value.time(time)])
     |> db.query(conn, pg.query)
     |> should.be_ok
 
@@ -667,7 +678,7 @@ pub fn timestamp_bind_test() {
 
   let queried =
     db.sql("SELECT $1::timestamp")
-    |> db.values([value.timestamp(ts)])
+    |> db.params([value.timestamp(ts)])
     |> db.query(conn, pg.query)
     |> should.be_ok
 
