@@ -1,15 +1,55 @@
+import based
 import based/db
-import based/sql
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/function
 import gleam/int
+import gleam/list
 import gleam/otp/actor
 import gleam/otp/static_supervisor.{type Supervisor}
 import gleam/otp/supervision
 import gleam/result
-import pg_value.{type Value} as value
+import pg_value
 import pgl
+
+// ---------- pg_value aliases ---------- //
+
+pub type Value =
+  pg_value.Value
+
+pub const offset = pg_value.offset
+
+pub const minutes = pg_value.minutes
+
+pub const null = pg_value.null
+
+pub const true = pg_value.true
+
+pub const false = pg_value.false
+
+pub const bool = pg_value.bool
+
+pub const int = pg_value.int
+
+pub const float = pg_value.float
+
+pub const text = pg_value.text
+
+pub const bytea = pg_value.bytea
+
+pub const time = pg_value.time
+
+pub const date = pg_value.date
+
+pub const timestamp = pg_value.timestamp
+
+pub const timestamptz = pg_value.timestamptz
+
+pub const interval = pg_value.interval
+
+pub const array = pg_value.array
+
+// ---------- Config ---------- //
 
 pub type Config {
   Config(
@@ -93,27 +133,25 @@ fn to_pgl_config(config: Config) -> pgl.Config {
   |> pgl.ssl(ssl)
 }
 
-// ---------- SQL sql.SqlFmter ---------- //
-
-fn fmt() -> sql.SqlFmt(Value) {
-  sql.format()
-  |> sql.on_identifier(function.identity)
-  |> sql.on_placeholder(fn(idx) { "$" <> int.to_string(idx) })
-  |> sql.on_value(value.to_string)
+pub fn repo() -> based.Repo(Value) {
+  based.repo()
+  |> based.on_identifier(function.identity)
+  |> based.on_placeholder(fn(idx) { "$" <> int.to_string(idx) })
+  |> based.on_value(pg_value.to_string)
 }
 
 pub opaque type Db {
-  Db(pgl: pgl.Db, fmt: sql.SqlFmt(Value))
+  Db(pgl: pgl.Db, repo: based.Repo(pg_value.Value))
 }
 
-pub type Connection {
-  Connection(conn: pgl.Connection, fmt: sql.SqlFmt(Value))
+pub opaque type Connection {
+  Connection(conn: pgl.Connection)
 }
 
 pub fn connection(db: Db) -> Connection {
   let conn = pgl.connection(db.pgl)
 
-  Connection(conn:, fmt: db.fmt)
+  Connection(conn:)
 }
 
 pub fn new(conf: Config) -> Db {
@@ -122,7 +160,7 @@ pub fn new(conf: Config) -> Db {
     |> to_pgl_config
     |> pgl.new
 
-  Db(pgl: pgl_db, fmt: fmt())
+  Db(pgl: pgl_db, repo: repo())
 }
 
 pub fn start(db: Db) -> actor.StartResult(Supervisor) {
@@ -141,6 +179,27 @@ pub fn shutdown(db: Db) -> Nil {
 
 pub fn execute(sql: String, conn: Connection) -> Result(Int, db.DbError) {
   pgl.execute(sql, conn.conn) |> result.map_error(handle_error)
+}
+
+pub fn batch(
+  queries: List(db.Query(Value)),
+  conn: Connection,
+) -> Result(List(db.Queried), db.DbError) {
+  queries
+  |> list.map(fn(query) {
+    pgl.sql(query.sql)
+    |> pgl.params(query.values)
+  })
+  |> pgl.batch(conn.conn)
+  |> result.map_error(handle_error)
+  |> result.map(fn(queried) {
+    queried
+    |> list.map(fn(pgl_queried) {
+      let pgl.Queried(count:, fields:, rows:) = pgl_queried
+
+      db.Queried(count:, fields:, rows:)
+    })
+  })
 }
 
 fn handle_error(err: pgl.PglError) -> db.DbError {
@@ -252,7 +311,7 @@ pub fn transaction(
   next: fn(Connection) -> Result(t, err),
 ) -> Result(t, db.TransactionError(err)) {
   pgl.transaction(conn.conn, fn(pgl_tx) {
-    let tx_conn = Connection(..conn, conn: pgl_tx)
+    let tx_conn = Connection(conn: pgl_tx)
     next(tx_conn)
   })
   |> result.map_error(pgl_tx_err_to_db_tx_err)
@@ -260,7 +319,7 @@ pub fn transaction(
 
 pub fn begin(conn: Connection) -> Result(Connection, db.TransactionError(err)) {
   pgl.begin(conn.conn)
-  |> result.map(fn(pgl_conn) { Connection(..conn, conn: pgl_conn) })
+  |> result.map(fn(pgl_conn) { Connection(conn: pgl_conn) })
   |> result.map_error(to_transaction_error)
 }
 
@@ -276,7 +335,7 @@ fn pgl_tx_err_to_db_tx_err(
 
 pub fn commit(conn: Connection) -> Result(Connection, db.TransactionError(err)) {
   pgl.commit(conn.conn)
-  |> result.map(fn(pgl_conn) { Connection(..conn, conn: pgl_conn) })
+  |> result.map(fn(pgl_conn) { Connection(conn: pgl_conn) })
   |> result.map_error(to_transaction_error)
 }
 
@@ -284,7 +343,7 @@ pub fn rollback(
   conn: Connection,
 ) -> Result(Connection, db.TransactionError(err)) {
   pgl.rollback(conn.conn)
-  |> result.map(fn(pgl_conn) { Connection(..conn, conn: pgl_conn) })
+  |> result.map(fn(pgl_conn) { Connection(conn: pgl_conn) })
   |> result.map_error(to_transaction_error)
 }
 

@@ -68,36 +68,36 @@ fn with_rollback(conn: pg.Connection, next: fn(pg.Connection) -> a) -> a {
 pub fn execute_test() {
   use conn <- with_db_setup()
 
-  let users = sql.name("users") |> sql.table
+  let users = sql.table("users")
 
   let assert Ok(1) =
-    insert.into(users)
+    insert.into(pg.repo(), users)
     |> insert.columns(["name", "email"])
     |> insert.values([
       [
-        sql.value("bill", of: value.text),
-        sql.value("bill@example.com", of: value.text),
+        value.text("bill"),
+        value.text("bill@example.com"),
       ],
     ])
-    |> insert.to_string(conn.fmt)
+    |> insert.to_string
     |> db.execute(conn, pg.execute)
 
   let assert Ok(1) =
-    insert.into(users)
+    insert.into(pg.repo(), users)
     |> insert.columns(["name", "email"])
     |> insert.values([
       [
-        sql.value("todd", of: value.text),
-        sql.value("todd@example.com", of: value.text),
+        value.text("todd"),
+        value.text("todd@example.com"),
       ],
     ])
-    |> insert.to_string(conn.fmt)
+    |> insert.to_string
     |> db.execute(conn, pg.execute)
 
   let assert Ok(queried) =
-    select.from(users)
-    |> select.columns(["email", "id"])
-    |> select.to_query(conn.fmt)
+    select.from(pg.repo(), users)
+    |> select.columns([sql.column("email"), sql.column("id")])
+    |> select.to_query
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(2)
@@ -156,18 +156,18 @@ pub fn bind_bool_test() {
 pub fn query_test() {
   use conn <- with_db_setup()
 
-  let users = sql.name("users") |> sql.table
+  let users = sql.table("users")
 
   let assert Ok(queried) =
-    insert.into(users)
+    insert.into(pg.repo(), users)
     |> insert.columns(["name", "email"])
     |> insert.values([
       [
-        sql.value("Tim", of: value.text),
-        sql.value("tim@example.com", of: value.text),
+        value.text("Tim"),
+        value.text("tim@example.com"),
       ],
     ])
-    |> insert.to_query(conn.fmt)
+    |> insert.to_query
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -182,22 +182,22 @@ pub fn query_test() {
 pub fn transaction_test() {
   use conn <- with_db_setup()
 
-  let users = sql.name("users") |> sql.table
+  let users = sql.table("users")
 
   let assert Ok(_) =
-    delete.from(users)
-    |> delete.to_string(conn.fmt)
+    delete.from(pg.repo(), users)
+    |> delete.to_string
     |> db.execute(conn, pg.execute)
 
   let insert = fn(conn: pg.Connection, name, email) {
     let assert Ok(queried) =
-      insert.into(users)
+      insert.into(pg.repo(), users)
       |> insert.columns(["name", "email"])
       |> insert.values([
-        [sql.value(name, of: value.text), sql.value(email, of: value.text)],
+        [value.text(name), value.text(email)],
       ])
-      |> insert.returning(["id"])
-      |> insert.to_query(conn.fmt)
+      |> insert.returning([sql.column("id")])
+      |> insert.to_query
       |> db.query(conn, pg.query)
 
     queried.rows
@@ -240,9 +240,9 @@ pub fn transaction_test() {
     })
 
   let assert Ok(queried) =
-    select.from(users)
-    |> select.columns(["id"])
-    |> select.to_query(conn.fmt)
+    select.from(pg.repo(), users)
+    |> select.columns([sql.column("id")])
+    |> select.to_query
     |> db.query(conn, pg.query)
 
   queried.rows
@@ -275,34 +275,34 @@ pub fn syntax_error_test() {
 pub fn constraint_error_primary_key_test() {
   use conn <- with_db_setup()
 
-  let users = sql.name("users") |> sql.table
+  let users = sql.table("users")
 
   let assert Ok(queried) =
-    insert.into(users)
+    insert.into(pg.repo(), users)
     |> insert.columns(["id", "name", "email"])
     |> insert.values([
       [
-        sql.value(1, of: value.int),
-        sql.value("First User", of: value.text),
-        sql.value("first_user@example.com", of: value.text),
+        value.int(1),
+        value.text("First User"),
+        value.text("first_user@example.com"),
       ],
     ])
-    |> insert.to_query(conn.fmt)
+    |> insert.to_query
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
 
   let assert Error(error) =
-    insert.into(users)
+    insert.into(pg.repo(), users)
     |> insert.columns(["id", "name", "email"])
     |> insert.values([
       [
-        sql.value(1, of: value.int),
-        sql.value("Duplicate User", of: value.text),
-        sql.value("duplicate_user@example.com", of: value.text),
+        value.int(1),
+        value.text("Duplicate User"),
+        value.text("duplicate_user@example.com"),
       ],
     ])
-    |> insert.to_query(conn.fmt)
+    |> insert.to_query
     |> db.query(conn, pg.query)
 
   let assert db.ConstraintError(code, name, message) = error
@@ -325,13 +325,13 @@ pub fn constraint_error_not_null_test() {
     "CREATE TABLE required (id INTEGER, name TEXT NOT NULL)"
     |> db.execute(conn, pg.execute)
 
-  let required = sql.name("required") |> sql.table
+  let required = sql.table("required")
 
   let assert Error(error) =
-    insert.into(required)
+    insert.into(pg.repo(), required)
     |> insert.columns(["id"])
-    |> insert.values([[sql.value(1, of: value.int)]])
-    |> insert.to_query(conn.fmt)
+    |> insert.values([[value.int(1)]])
+    |> insert.to_query
     |> db.query(conn, pg.query)
 
   let assert db.ConstraintError(code, name, message) = error
@@ -355,22 +355,22 @@ pub fn transaction_rollback_test() {
   |> db.execute(conn, pg.execute)
   |> should.be_ok
 
-  let tx_test = sql.name("tx_test") |> sql.table
+  let tx_test = sql.table("tx_test")
 
   let assert Ok(_queried) =
-    insert.into(tx_test)
+    insert.into(pg.repo(), tx_test)
     |> insert.columns(["id", "name"])
     |> insert.values([
-      [sql.value(1, of: value.int), sql.value("Before", of: value.text)],
+      [value.int(1), value.text("Before")],
     ])
-    |> insert.returning(["*"])
-    |> insert.to_query(conn.fmt)
+    |> insert.returning([sql.all])
+    |> insert.to_query
     |> db.query(conn, pg.query)
 
   let assert Ok(queried) =
-    select.from(tx_test)
-    |> select.columns(["COUNT(*)"])
-    |> select.to_query(conn.fmt)
+    select.from(pg.repo(), tx_test)
+    |> select.columns([sql.count("*")])
+    |> select.to_query
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -378,25 +378,25 @@ pub fn transaction_rollback_test() {
   let assert Error(error) =
     pg.transaction(conn, fn(tx) {
       let assert Ok(_queried) =
-        insert.into(tx_test)
+        insert.into(pg.repo(), tx_test)
         |> insert.columns(["id", "name"])
         |> insert.values([
           [
-            sql.value(2, of: value.int),
-            sql.value("Transaction", of: value.text),
+            value.int(2),
+            value.text("Transaction"),
           ],
         ])
-        |> insert.returning(["*"])
-        |> insert.to_query(tx.fmt)
+        |> insert.returning([sql.all])
+        |> insert.to_query
         |> db.query(tx, pg.query)
 
-      insert.into(tx_test)
+      insert.into(pg.repo(), tx_test)
       |> insert.columns(["id", "name"])
       |> insert.values([
-        [sql.value(1, of: value.int), sql.value("Duplicate", of: value.text)],
+        [value.int(1), value.text("Duplicate")],
       ])
-      |> insert.returning(["*"])
-      |> insert.to_query(tx.fmt)
+      |> insert.returning([sql.all])
+      |> insert.to_query
       |> db.query(tx, pg.query)
       |> result.replace_error("Expected error")
     })
@@ -406,9 +406,9 @@ pub fn transaction_rollback_test() {
   message |> should.equal("Expected error")
 
   let assert Ok(queried) =
-    select.from(tx_test)
-    |> select.columns(["COUNT(*)"])
-    |> select.to_query(conn.fmt)
+    select.from(pg.repo(), tx_test)
+    |> select.columns([sql.count("*")])
+    |> select.to_query
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -417,12 +417,12 @@ pub fn transaction_rollback_test() {
 pub fn table_not_exist_error_test() {
   use conn <- connect()
 
-  let non_existent_table = sql.name("non_existent_table") |> sql.table
+  let non_existent_table = sql.table("non_existent_table")
 
   let assert Error(error) =
-    select.from(non_existent_table)
-    |> select.columns(["*"])
-    |> select.to_query(conn.fmt)
+    select.from(pg.repo(), non_existent_table)
+    |> select.columns([sql.count("*")])
+    |> select.to_query
     |> db.query(conn, pg.query)
 
   let assert db.SyntaxError(code:, name:, message:) = error
@@ -473,7 +473,7 @@ pub fn date_roundtrip_test() {
     // Unix time rollover
   ]
 
-  let date_test = sql.name("date_test") |> sql.table
+  let date_test = sql.table("date_test")
 
   let decoder = fn() {
     use date <- decode.field(0, date_decoder())
@@ -484,11 +484,11 @@ pub fn date_roundtrip_test() {
     use date <- list.flat_map(dates)
 
     let assert Ok(queried) =
-      insert.into(date_test)
+      insert.into(pg.repo(), date_test)
       |> insert.columns(["date_col"])
-      |> insert.values([[sql.value(date, of: value.date)]])
-      |> insert.returning(["date_col"])
-      |> insert.to_query(conn.fmt)
+      |> insert.values([[value.date(date)]])
+      |> insert.returning([sql.column("date_col")])
+      |> insert.to_query
       |> db.all(conn, decoder, pg.query)
 
     queried.count |> should.equal(1)
@@ -531,7 +531,7 @@ pub fn interval_roundtrip_test() {
   |> db.execute(conn, pg.execute)
   |> should.be_ok
 
-  let interval_test = sql.name("interval_test") |> sql.table
+  let interval_test = sql.table("interval_test")
 
   let intervals = [
     // 1 minute
@@ -552,23 +552,23 @@ pub fn interval_roundtrip_test() {
   ]
 
   {
-    use dur <- list.each(intervals)
+    use interval <- list.each(intervals)
 
     let assert Ok(queried) =
-      insert.into(interval_test)
+      insert.into(pg.repo(), interval_test)
       |> insert.columns(["dur_col"])
-      |> insert.values([[sql.value(dur, of: value.interval)]])
-      |> insert.returning(["dur_col"])
-      |> insert.to_query(conn.fmt)
+      |> insert.values([[value.interval(interval)]])
+      |> insert.returning([sql.column("dur_col")])
+      |> insert.to_query
       |> db.query(conn, pg.query)
 
     queried.count |> should.equal(1)
   }
 
   let assert Ok(queried) =
-    select.from(interval_test)
-    |> select.columns(["dur_col"])
-    |> select.to_query(conn.fmt)
+    select.from(pg.repo(), interval_test)
+    |> select.columns([sql.column("dur_col")])
+    |> select.to_query
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(6)
@@ -634,31 +634,31 @@ pub fn time_roundtrip_test() {
     calendar.TimeOfDay(18, 45, 30, 250_000_000),
   ]
 
-  let time_test = sql.name("time_test") |> sql.table
+  let time_test = sql.table("time_test")
 
   {
     use time <- list.each(times)
 
     let assert Ok(queried) =
-      insert.into(time_test)
+      insert.into(pg.repo(), time_test)
       |> insert.columns(["time_col"])
-      |> insert.values([[sql.value(time, of: value.time)]])
-      |> insert.to_query(conn.fmt)
+      |> insert.values([[value.time(time)]])
+      |> insert.to_query
       |> db.query(conn, pg.query)
 
     queried.count |> should.equal(1)
   }
 
   let assert Ok(returning) =
-    select.from(time_test)
-    |> select.columns(["time_col"])
+    select.from(pg.repo(), time_test)
+    |> select.columns([sql.column("time_col")])
     |> select.order_by(["id"])
-    |> select.to_query(conn.fmt)
+    |> select.to_query
     |> db.query(conn, pg.query)
     |> result.try(db.decode(_, time_decoder))
 
   returning.count |> should.equal(5)
-  // returning.rows |> should.equal(times)
+  returning.rows |> should.equal(times)
 }
 
 fn time_decoder() -> decode.Decoder(calendar.TimeOfDay) {
@@ -709,16 +709,16 @@ pub fn timestamp_roundtrip_test() {
     timestamp.from_unix_seconds(2_147_483_647),
   ]
 
-  let timestamp_test = sql.name("timestamp_test") |> sql.table
+  let timestamp_test = sql.table("timestamp_test")
 
   {
     use ts <- list.each(timestamps)
 
     let assert Ok(queried) =
-      insert.into(timestamp_test)
+      insert.into(pg.repo(), timestamp_test)
       |> insert.columns(["ts_col"])
-      |> insert.values([[sql.value(ts, of: value.timestamp)]])
-      |> insert.to_query(conn.fmt)
+      |> insert.values([[value.timestamp(ts)]])
+      |> insert.to_query
       |> db.query(conn, pg.query)
 
     queried.count |> should.equal(1)
@@ -730,10 +730,10 @@ pub fn timestamp_roundtrip_test() {
   }
 
   let assert Ok(returning) =
-    select.from(timestamp_test)
-    |> select.columns(["ts_col"])
+    select.from(pg.repo(), timestamp_test)
+    |> select.columns([sql.column("ts_col")])
     |> select.order_by(["id"])
-    |> select.to_query(conn.fmt)
+    |> select.to_query
     |> db.all(conn, fn() { decoder }, pg.query)
 
   returning.count |> should.equal(5)
