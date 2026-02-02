@@ -1,4 +1,5 @@
 import based/db
+import based/interval
 import based/pg
 import based/sql
 import based/sql/delete
@@ -13,8 +14,6 @@ import gleam/time/calendar
 import gleam/time/timestamp
 import gleeunit/should
 import global_value
-import pg_value as value
-import pg_value/interval
 
 fn global_db() -> pg.Db {
   global_value.create_with_unique_name("pg_db_test", fn() {
@@ -75,8 +74,8 @@ pub fn execute_test() {
     |> insert.columns(["name", "email"])
     |> insert.values([
       [
-        value.text("bill"),
-        value.text("bill@example.com"),
+        db.text("bill"),
+        db.text("bill@example.com"),
       ],
     ])
     |> insert.to_string
@@ -87,8 +86,8 @@ pub fn execute_test() {
     |> insert.columns(["name", "email"])
     |> insert.values([
       [
-        value.text("todd"),
-        value.text("todd@example.com"),
+        db.text("todd"),
+        db.text("todd@example.com"),
       ],
     ])
     |> insert.to_string
@@ -114,7 +113,7 @@ pub fn bind_float_test() {
 
   let assert Ok(queried) =
     db.sql("select $1::float4")
-    |> db.params([value.float(12_345.6789)])
+    |> db.params([db.float(12_345.6789)])
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -125,7 +124,7 @@ pub fn bind_text_test() {
 
   let assert Ok(queried) =
     db.sql("select $1::text")
-    |> db.params([value.text("hello")])
+    |> db.params([db.text("hello")])
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -136,7 +135,7 @@ pub fn bind_blob_test() {
 
   let assert Ok(queried) =
     db.sql("select $1::bytea")
-    |> db.params([value.bytea(<<123, 0>>)])
+    |> db.params([db.bytea(<<123, 0>>)])
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -147,7 +146,7 @@ pub fn bind_bool_test() {
 
   let assert Ok(queried) =
     db.sql("select $1::bool")
-    |> db.params([value.Bool(True)])
+    |> db.params([db.Bool(True)])
     |> db.query(conn, pg.query)
 
   queried.count |> should.equal(1)
@@ -163,8 +162,8 @@ pub fn query_test() {
     |> insert.columns(["name", "email"])
     |> insert.values([
       [
-        value.text("Tim"),
-        value.text("tim@example.com"),
+        db.text("Tim"),
+        db.text("tim@example.com"),
       ],
     ])
     |> insert.to_query
@@ -194,7 +193,7 @@ pub fn transaction_test() {
       insert.into(pg.repo(), users)
       |> insert.columns(["name", "email"])
       |> insert.values([
-        [value.text(name), value.text(email)],
+        [db.text(name), db.text(email)],
       ])
       |> insert.returning([sql.column("id")])
       |> insert.to_query
@@ -282,9 +281,9 @@ pub fn constraint_error_primary_key_test() {
     |> insert.columns(["id", "name", "email"])
     |> insert.values([
       [
-        value.int(1),
-        value.text("First User"),
-        value.text("first_user@example.com"),
+        db.int(1),
+        db.text("First User"),
+        db.text("first_user@example.com"),
       ],
     ])
     |> insert.to_query
@@ -297,9 +296,9 @@ pub fn constraint_error_primary_key_test() {
     |> insert.columns(["id", "name", "email"])
     |> insert.values([
       [
-        value.int(1),
-        value.text("Duplicate User"),
-        value.text("duplicate_user@example.com"),
+        db.int(1),
+        db.text("Duplicate User"),
+        db.text("duplicate_user@example.com"),
       ],
     ])
     |> insert.to_query
@@ -330,7 +329,7 @@ pub fn constraint_error_not_null_test() {
   let assert Error(error) =
     insert.into(pg.repo(), required)
     |> insert.columns(["id"])
-    |> insert.values([[value.int(1)]])
+    |> insert.values([[db.int(1)]])
     |> insert.to_query
     |> db.query(conn, pg.query)
 
@@ -361,7 +360,7 @@ pub fn transaction_rollback_test() {
     insert.into(pg.repo(), tx_test)
     |> insert.columns(["id", "name"])
     |> insert.values([
-      [value.int(1), value.text("Before")],
+      [db.int(1), db.text("Before")],
     ])
     |> insert.returning([sql.all])
     |> insert.to_query
@@ -382,8 +381,8 @@ pub fn transaction_rollback_test() {
         |> insert.columns(["id", "name"])
         |> insert.values([
           [
-            value.int(2),
-            value.text("Transaction"),
+            db.int(2),
+            db.text("Transaction"),
           ],
         ])
         |> insert.returning([sql.all])
@@ -393,7 +392,7 @@ pub fn transaction_rollback_test() {
       insert.into(pg.repo(), tx_test)
       |> insert.columns(["id", "name"])
       |> insert.values([
-        [value.int(1), value.text("Duplicate")],
+        [db.int(1), db.text("Duplicate")],
       ])
       |> insert.returning([sql.all])
       |> insert.to_query
@@ -442,7 +441,7 @@ pub fn date_bind_test() {
 
   let queried =
     db.sql("SELECT $1::date")
-    |> db.params([value.date(date)])
+    |> db.params([db.date(date)])
     |> db.query(conn, pg.query)
     |> should.be_ok
 
@@ -486,7 +485,7 @@ pub fn date_roundtrip_test() {
     let assert Ok(queried) =
       insert.into(pg.repo(), date_test)
       |> insert.columns(["date_col"])
-      |> insert.values([[value.date(date)]])
+      |> insert.values([[db.date(date)]])
       |> insert.returning([sql.column("date_col")])
       |> insert.to_query
       |> db.all(conn, decoder, pg.query)
@@ -507,7 +506,7 @@ pub fn interval_bind_test() {
 
   let queried =
     db.sql("SELECT $1::interval")
-    |> db.params([value.interval(interval)])
+    |> db.params([db.interval(interval)])
     |> db.query(conn, pg.query)
     |> should.be_ok
 
@@ -557,7 +556,7 @@ pub fn interval_roundtrip_test() {
     let assert Ok(queried) =
       insert.into(pg.repo(), interval_test)
       |> insert.columns(["dur_col"])
-      |> insert.values([[value.interval(interval)]])
+      |> insert.values([[db.interval(interval)]])
       |> insert.returning([sql.column("dur_col")])
       |> insert.to_query
       |> db.query(conn, pg.query)
@@ -603,7 +602,7 @@ pub fn time_bind_test() {
 
   let queried =
     db.sql("SELECT $1::time")
-    |> db.params([value.time(time)])
+    |> db.params([db.time(time)])
     |> db.query(conn, pg.query)
     |> should.be_ok
 
@@ -642,7 +641,7 @@ pub fn time_roundtrip_test() {
     let assert Ok(queried) =
       insert.into(pg.repo(), time_test)
       |> insert.columns(["time_col"])
-      |> insert.values([[value.time(time)]])
+      |> insert.values([[db.time(time)]])
       |> insert.to_query
       |> db.query(conn, pg.query)
 
@@ -664,7 +663,9 @@ pub fn time_roundtrip_test() {
 fn time_decoder() -> decode.Decoder(calendar.TimeOfDay) {
   use time <- decode.field(0, decode.list(of: decode.int))
 
-  let assert [hours, minutes, seconds, nanoseconds] = time
+  let assert [hours, minutes, seconds, microseconds] = time
+
+  let nanoseconds = microseconds * 1000
 
   calendar.TimeOfDay(hours:, minutes:, seconds:, nanoseconds:)
   |> decode.success
@@ -678,7 +679,7 @@ pub fn timestamp_bind_test() {
 
   let queried =
     db.sql("SELECT $1::timestamp")
-    |> db.params([value.timestamp(ts)])
+    |> db.params([db.timestamp(ts)])
     |> db.query(conn, pg.query)
     |> should.be_ok
 
@@ -717,7 +718,7 @@ pub fn timestamp_roundtrip_test() {
     let assert Ok(queried) =
       insert.into(pg.repo(), timestamp_test)
       |> insert.columns(["ts_col"])
-      |> insert.values([[value.timestamp(ts)]])
+      |> insert.values([[db.timestamp(ts)]])
       |> insert.to_query
       |> db.query(conn, pg.query)
 

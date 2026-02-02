@@ -1,55 +1,20 @@
 import based
 import based/db
+import based/interval
+import based/repo.{type Repo}
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
-import gleam/function
 import gleam/int
 import gleam/list
 import gleam/otp/actor
 import gleam/otp/static_supervisor.{type Supervisor}
 import gleam/otp/supervision
 import gleam/result
+import gleam/time/duration
+import gleam/time/timestamp
 import pg_value
+import pg_value/interval as pg_interval
 import pgl
-
-// ---------- pg_value aliases ---------- //
-
-pub type Value =
-  pg_value.Value
-
-pub const offset = pg_value.offset
-
-pub const minutes = pg_value.minutes
-
-pub const null = pg_value.null
-
-pub const true = pg_value.true
-
-pub const false = pg_value.false
-
-pub const bool = pg_value.bool
-
-pub const int = pg_value.int
-
-pub const float = pg_value.float
-
-pub const text = pg_value.text
-
-pub const bytea = pg_value.bytea
-
-pub const time = pg_value.time
-
-pub const date = pg_value.date
-
-pub const timestamp = pg_value.timestamp
-
-pub const timestamptz = pg_value.timestamptz
-
-pub const interval = pg_value.interval
-
-pub const array = pg_value.array
-
-// ---------- Config ---------- //
 
 pub type Config {
   Config(
@@ -133,15 +98,13 @@ fn to_pgl_config(config: Config) -> pgl.Config {
   |> pgl.ssl(ssl)
 }
 
-pub fn repo() -> based.Repo(Value) {
-  based.repo()
-  |> based.on_identifier(function.identity)
-  |> based.on_placeholder(fn(idx) { "$" <> int.to_string(idx) })
-  |> based.on_value(pg_value.to_string)
+pub fn repo() -> Repo(db.Value) {
+  based.default()
+  |> repo.on_placeholder(fn(idx) { "$" <> int.to_string(idx) })
 }
 
 pub opaque type Db {
-  Db(pgl: pgl.Db, repo: based.Repo(pg_value.Value))
+  Db(pgl: pgl.Db, repo: Repo(db.Value))
 }
 
 pub opaque type Connection {
@@ -182,14 +145,11 @@ pub fn execute(sql: String, conn: Connection) -> Result(Int, db.DbError) {
 }
 
 pub fn batch(
-  queries: List(db.Query(Value)),
+  queries: List(db.Query(db.Value)),
   conn: Connection,
 ) -> Result(List(db.Queried), db.DbError) {
   queries
-  |> list.map(fn(query) {
-    pgl.sql(query.sql)
-    |> pgl.params(query.values)
-  })
+  |> list.map(db_query_to_pg_query)
   |> pgl.batch(conn.conn)
   |> result.map_error(handle_error)
   |> result.map(fn(queried) {
@@ -200,6 +160,49 @@ pub fn batch(
       db.Queried(count:, fields:, rows:)
     })
   })
+}
+
+fn db_query_to_pg_query(query: db.Query(db.Value)) -> pgl.Query {
+  let pg_values =
+    query.values
+    |> list.map(based_value_to_pg_value)
+
+  pgl.sql(query.sql)
+  |> pgl.params(pg_values)
+}
+
+fn based_value_to_pg_value(value: db.Value) -> pg_value.Value {
+  case value {
+    db.Null -> pg_value.null
+    db.Bool(val) -> pg_value.bool(val)
+    db.Int(val) -> pg_value.int(val)
+    db.Float(val) -> pg_value.float(val)
+    db.Text(val) -> pg_value.text(val)
+    db.Bytea(val) -> pg_value.bytea(val)
+    db.Date(val) -> pg_value.date(val)
+    db.Time(val) -> pg_value.time(val)
+    db.Datetime(date, time) -> {
+      timestamp.from_calendar(date:, time:, offset: duration.seconds(0))
+      |> pg_value.timestamp
+    }
+    db.Timestamp(val) -> pg_value.timestamp(val)
+    db.Timestamptz(val, offset) -> {
+      let db.Offset(hours, minutes) = offset
+
+      let pg_offset =
+        pg_value.offset(hours)
+        |> pg_value.minutes(minutes)
+
+      pg_value.timestamptz(val, pg_offset)
+    }
+    db.Interval(val) -> {
+      let interval.Interval(months:, days:, seconds:, microseconds:) = val
+
+      pg_interval.Interval(months:, days:, seconds:, microseconds:)
+      |> pg_value.interval
+    }
+    db.Array(val) -> pg_value.array(val, based_value_to_pg_value)
+  }
 }
 
 fn handle_error(err: pgl.PglError) -> db.DbError {
@@ -275,11 +278,11 @@ fn handle_postgres_error(
 }
 
 pub fn query(
-  query: db.Query(Value),
+  query: db.Query(db.Value),
   conn: Connection,
 ) -> Result(db.Queried, db.DbError) {
-  pgl.sql(query.sql)
-  |> pgl.params(query.values)
+  query
+  |> db_query_to_pg_query
   |> pgl.query(conn.conn)
   |> result.map_error(handle_error)
   |> result.map(fn(pgl_queried) {
@@ -290,12 +293,12 @@ pub fn query(
 }
 
 pub fn all(
-  query: db.Query(Value),
+  query: db.Query(db.Value),
   conn: Connection,
   decoder: fn() -> Decoder(a),
 ) -> Result(db.Returning(a), db.DbError) {
-  pgl.sql(query.sql)
-  |> pgl.params(query.values)
+  query
+  |> db_query_to_pg_query
   |> pgl.query(conn.conn)
   |> result.map_error(handle_error)
   |> result.try(fn(pgl_queried) {
