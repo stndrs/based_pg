@@ -18,68 +18,173 @@ import pgl
 
 pub type Config {
   Config(
+    /// Application's name.
+    application: String,
+    /// (default: 127.0.0.1) Database server hostname.
     host: String,
+    /// (default: 5432) Database server port.
     port: Int,
-    user: String,
+    /// Database username.
+    username: String,
+    /// Database user password.
     password: String,
+    /// Database to use.
     database: String,
-    timeout: Int,
-    ping_timeout: Int,
-    recv_timeout: Int,
+    /// Other Postgres connection parameters.
+    connection_parameters: List(#(String, String)),
+    /// (default: SslDisabled) SSL enabled or disabled.
     ssl: Ssl,
-    // Pool config
+    /// (default: False) Return rows as `Dict` or n-tuple.
+    rows_as_dict: Bool,
+    /// (default: Ipv4) The IP version to use
+    ip_version: IpVersion,
+    /// (default: 1) Connection pool size.
     pool_size: Int,
-    creation_timeout: Int,
-    queue_target: Int,
-    queue_interval: Int,
+    /// (default: 1000) Idle connections ping the database every `idle_interval`.
     idle_interval: Int,
-    idle_limit: Int,
+    /// (default: 50) How long checking out a connection should take.
+    queue_target: Int,
   )
 }
 
+/// The IP version to use
+pub type IpVersion {
+  Ipv4
+  Ipv6
+}
+
 pub type Ssl {
+  /// Disables SSL leaving connections unsecured. Avoid using this in production.
   SslDisabled
+  /// Enables SSL and checks the CA certificate.
   SslVerified
+  /// Enables SSL but does not check the CA certificate.
   SslUnverified
 }
 
 pub const config: Config = Config(
+  application: "",
   host: "127.0.0.1",
   port: 5432,
-  user: "",
+  username: "",
   password: "",
   database: "",
-  timeout: 5000,
-  ping_timeout: 1000,
-  recv_timeout: 5000,
+  connection_parameters: [],
   ssl: SslDisabled,
-  // Pool config
+  rows_as_dict: False,
+  ip_version: Ipv4,
   pool_size: 1,
-  creation_timeout: 50,
   queue_target: 50,
-  queue_interval: 2000,
   idle_interval: 1000,
-  idle_limit: 1,
 )
 
-pub fn database(config: Config, database: String) -> Config {
-  Config(..config, database:)
+/// Name of the application connecting to the database.
+pub fn application(conf: Config, application: String) -> Config {
+  Config(..conf, application:)
 }
 
+/// The database server hostname.
 pub fn host(config: Config, host: String) -> Config {
   Config(..config, host:)
 }
 
-pub fn username(config: Config, user: String) -> Config {
-  Config(..config, user:)
+/// The port on which the database server is listening.
+pub fn port(config: Config, port: Int) -> Config {
+  Config(..config, port:)
 }
 
+/// The username to connect to the database as.
+pub fn username(config: Config, username: String) -> Config {
+  Config(..config, username:)
+}
+
+/// The password of the user.
 pub fn password(config: Config, password: String) -> Config {
   Config(..config, password:)
 }
 
-pub fn ping_timeout(config: Config, ping_timeout: Int) -> Config {
-  Config(..config, ping_timeout:)
+/// The name of the database to use.
+pub fn database(conf: Config, database: String) -> Config {
+  Config(..conf, database:)
+}
+
+/// Sets other postgres connection parameters.
+pub fn connection_parameter(
+  conf: Config,
+  name name: String,
+  value value: String,
+) -> Config {
+  let connection_parameters =
+    list.prepend(conf.connection_parameters, #(name, value))
+
+  Config(..conf, connection_parameters:)
+}
+
+/// Whether SSL should be used.
+pub fn ssl(conf: Config, ssl: Ssl) -> Config {
+  Config(..conf, ssl:)
+}
+
+/// Configures rows to be returns as `Dict` rather than n-tuples.
+pub fn rows_as_dict(conf: Config, rows_as_dict: Bool) -> Config {
+  Config(..conf, rows_as_dict:)
+}
+
+/// Which IP version to use
+pub fn ip_version(conf: Config, ip_version: IpVersion) -> Config {
+  Config(..conf, ip_version:)
+}
+
+/// Sets the size of the connection pool.
+pub fn pool_size(conf: Config, pool_size: Int) -> Config {
+  Config(..conf, pool_size:)
+}
+
+/// How often idle connections should ping the database server.
+pub fn idle_interval(conf: Config, idle_interval: Int) -> Config {
+  Config(..conf, idle_interval:)
+}
+
+/// How long it should take to check out a connection from the connection pool.
+pub fn queue_target(conf: Config, queue_target: Int) -> Config {
+  Config(..conf, queue_target:)
+}
+
+/// Build a `Config` from a connection url
+pub fn from_url(url: String) -> Result(Config, Nil) {
+  url
+  |> pgl.from_url
+  |> result.map(from_pgl_config)
+}
+
+fn from_pgl_config(conf: pgl.Config) -> Config {
+  let pg_ssl = case conf.ssl {
+    pgl.SslDisabled -> SslDisabled
+    pgl.SslUnverified -> SslUnverified
+    pgl.SslVerified -> SslVerified
+  }
+
+  let pg_ip_version = case conf.ip_version {
+    pgl.Ipv4 -> Ipv4
+    pgl.Ipv6 -> Ipv6
+  }
+
+  let pg_config =
+    config
+    |> application(conf.application)
+    |> host(conf.host)
+    |> port(conf.port)
+    |> username(conf.username)
+    |> password(conf.password)
+    |> database(conf.database)
+    |> ssl(pg_ssl)
+    |> rows_as_dict(conf.rows_as_dict)
+    |> ip_version(pg_ip_version)
+    |> pool_size(conf.pool_size)
+    |> idle_interval(conf.idle_interval)
+    |> queue_target(conf.queue_target)
+
+  Config(..pg_config, connection_parameters: conf.connection_parameters)
 }
 
 fn to_pgl_config(config: Config) -> pgl.Config {
@@ -89,18 +194,30 @@ fn to_pgl_config(config: Config) -> pgl.Config {
     SslVerified -> pgl.SslVerified
   }
 
+  let pgl_ip_version = case config.ip_version {
+    Ipv4 -> pgl.Ipv4
+    Ipv6 -> pgl.Ipv6
+  }
+
   pgl.default
+  |> pgl.application(config.application)
   |> pgl.host(config.host)
   |> pgl.port(config.port)
-  |> pgl.username(config.user)
+  |> pgl.username(config.username)
   |> pgl.password(config.password)
   |> pgl.database(config.database)
   |> pgl.ssl(ssl)
+  |> pgl.rows_as_dict(config.rows_as_dict)
+  |> pgl.ip_version(pgl_ip_version)
+  |> pgl.pool_size(config.pool_size)
+  |> pgl.idle_interval(config.idle_interval)
+  |> pgl.queue_target(config.queue_target)
 }
 
 pub fn repo() -> Repo(db.Value) {
-  based.default()
+  based.repo()
   |> repo.on_placeholder(fn(idx) { "$" <> int.to_string(idx) })
+  |> repo.on_identifier(fn(identifier) { "\"" <> identifier <> "\"" })
 }
 
 pub opaque type Pg {
