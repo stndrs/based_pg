@@ -4,7 +4,6 @@ import based/interval
 import based/repo.{type Repo}
 import based/uuid
 import gleam/dict.{type Dict}
-import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/list
 import gleam/otp/actor
@@ -104,48 +103,53 @@ pub fn repo() -> Repo(db.Value) {
   |> repo.on_placeholder(fn(idx) { "$" <> int.to_string(idx) })
 }
 
-pub opaque type Db {
-  Db(pgl: pgl.Db, repo: Repo(db.Value))
+pub opaque type Pg {
+  Pg(db: pgl.Db)
 }
 
 pub opaque type Connection {
   Connection(conn: pgl.Connection)
 }
 
-pub fn connection(db: Db) -> Connection {
-  let conn = pgl.connection(db.pgl)
-
-  Connection(conn:)
+pub fn new(conf: Config) -> Pg {
+  conf
+  |> to_pgl_config
+  |> pgl.new
+  |> Pg
 }
 
-pub fn new(conf: Config) -> Db {
-  let pgl_db =
-    conf
-    |> to_pgl_config
-    |> pgl.new
-
-  Db(pgl: pgl_db, repo: repo())
+pub fn start(pg: Pg) -> actor.StartResult(Supervisor) {
+  pgl.start(pg.db)
 }
 
-pub fn start(db: Db) -> actor.StartResult(Supervisor) {
-  pgl.start(db.pgl)
+pub fn supervised(pg: Pg) -> supervision.ChildSpecification(Supervisor) {
+  pgl.supervised(pg.db)
 }
 
-pub fn supervised(db: Db) -> supervision.ChildSpecification(Supervisor) {
-  pgl.supervised(db.pgl)
+pub fn db(pg: Pg) -> db.Db(db.Value, Connection) {
+  let conn =
+    pg.db
+    |> pgl.connection
+    |> Connection
+
+  db.driver()
+  |> db.on_query(query)
+  |> db.on_execute(execute)
+  |> db.on_batch(batch)
+  |> db.new(conn)
 }
 
-pub fn shutdown(db: Db) -> Nil {
-  let _ = pgl.shutdown(db.pgl)
+pub fn shutdown(pg: Pg) -> Nil {
+  let _ = pgl.shutdown(pg.db)
 
   Nil
 }
 
-pub fn execute(sql: String, conn: Connection) -> Result(Int, db.DbError) {
+fn execute(sql: String, conn: Connection) -> Result(Int, db.DbError) {
   pgl.execute(sql, conn.conn) |> result.map_error(handle_error)
 }
 
-pub fn batch(
+fn batch(
   queries: List(db.Query(db.Value)),
   conn: Connection,
 ) -> Result(List(db.Queried), db.DbError) {
@@ -279,7 +283,7 @@ fn handle_postgres_error(
   }
 }
 
-pub fn query(
+fn query(
   query: db.Query(db.Value),
   conn: Connection,
 ) -> Result(db.Queried, db.DbError) {
@@ -291,23 +295,6 @@ pub fn query(
     let pgl.Queried(count:, fields:, rows:) = pgl_queried
 
     db.Queried(count:, fields:, rows:)
-  })
-}
-
-pub fn all(
-  query: db.Query(db.Value),
-  conn: Connection,
-  decoder: Decoder(a),
-) -> Result(db.Returning(a), db.DbError) {
-  query
-  |> db_query_to_pg_query
-  |> pgl.query(conn.conn)
-  |> result.map_error(handle_error)
-  |> result.try(fn(pgl_queried) {
-    let pgl.Queried(count:, fields:, rows:) = pgl_queried
-
-    db.Queried(count:, fields:, rows:)
-    |> db.decode(decoder)
   })
 }
 

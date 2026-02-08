@@ -16,7 +16,7 @@ import gleeunit/should
 import global_value
 import pg_value
 
-fn global_db() -> pg.Db {
+fn global_db() -> db.Db(db.Value, pg.Connection) {
   global_value.create_with_unique_name("pg_db_test", fn() {
     let db =
       pg.config
@@ -27,19 +27,12 @@ fn global_db() -> pg.Db {
 
     let assert Ok(_) = pg.start(db)
 
-    db
+    pg.db(db)
   })
 }
 
 fn connect(next: fn(db.Db(db.Value, pg.Connection)) -> a) -> a {
-  let conn = global_db() |> pg.connection
-
-  db.driver()
-  |> db.on_query(pg.query)
-  |> db.on_execute(pg.execute)
-  |> db.on_batch(pg.batch)
-  |> db.new(conn)
-  |> next
+  global_db() |> next
 }
 
 const drop_users_sql = "DROP TABLE IF EXISTS users"
@@ -100,19 +93,19 @@ pub fn execute_test() {
     |> insert.to_string
     |> db.execute(db)
 
-  let assert Ok(queried) =
+  let assert Ok(rows) =
     select.from(pg.repo(), users)
     |> select.columns([sql.column("email"), sql.column("id")])
     |> select.to_query
-    |> db.query(db)
+    |> db.all(db, {
+      use email <- decode.field(0, decode.string)
+      use id <- decode.field(1, decode.int)
 
-  queried.count |> should.equal(2)
-  queried.fields |> should.equal(["email", "id"])
-  queried.rows
-  |> should.equal([
-    dynamic.array([dynamic.string("bill@example.com"), dynamic.int(1)]),
-    dynamic.array([dynamic.string("todd@example.com"), dynamic.int(2)]),
-  ])
+      decode.success(#(id, email))
+    })
+
+  assert 2 == list.length(rows)
+  assert rows == [#(1, "bill@example.com"), #(2, "todd@example.com")]
 }
 
 pub fn bind_float_test() {
@@ -123,7 +116,7 @@ pub fn bind_float_test() {
     |> db.params([db.float(12_345.6789)])
     |> db.query(db)
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 }
 
 pub fn bind_text_test() {
