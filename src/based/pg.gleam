@@ -2,6 +2,7 @@ import based
 import based/db
 import based/interval
 import based/repo.{type Repo}
+import based/uuid
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
@@ -174,6 +175,7 @@ fn db_query_to_pg_query(query: db.Query(db.Value)) -> pgl.Query {
 fn based_value_to_pg_value(value: db.Value) -> pg_value.Value {
   case value {
     db.Null -> pg_value.null
+    db.Uuid(val) -> val |> uuid.to_bit_array |> pg_value.uuid
     db.Bool(val) -> pg_value.bool(val)
     db.Int(val) -> pg_value.int(val)
     db.Float(val) -> pg_value.float(val)
@@ -295,7 +297,7 @@ pub fn query(
 pub fn all(
   query: db.Query(db.Value),
   conn: Connection,
-  decoder: fn() -> Decoder(a),
+  decoder: Decoder(a),
 ) -> Result(db.Returning(a), db.DbError) {
   query
   |> db_query_to_pg_query

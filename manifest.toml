@@ -2,7 +2,7 @@
 # You typically do not need to edit this file
 
 packages = [
-  { name = "based", version = "4.0.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "gleam_time"], source = "local", path = "../based" },
+  { name = "based", version = "4.0.0", build_tools = ["gleam"], requirements = ["gleam_crypto", "gleam_stdlib", "gleam_time"], source = "local", path = "../based" },
   { name = "db_pool", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_otp", "gleam_stdlib"], otp_app = "db_pool", source = "hex", outer_checksum = "7CA513A7A98D130FAD62FA3B93466703680BB1C095D15F1F8029F7DA7C68FA8F" },
   { name = "exception", version = "2.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "exception", source = "hex", outer_checksum = "329D269D5C2A314F7364BD2711372B6F2C58FA6F39981572E5CA68624D291F8C" },
   { name = "gleam_crypto", version = "1.5.1", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleam_crypto", source = "hex", outer_checksum = "50774BAFFF1144E7872814C566C5D653D83A3EBF23ACC3156B757A1B6819086E" },
@@ -12,8 +12,8 @@ packages = [
   { name = "gleam_time", version = "1.7.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleam_time", source = "hex", outer_checksum = "56DB0EF9433826D3B99DB0B4AF7A2BFED13D09755EC64B1DAAB46F804A9AD47D" },
   { name = "gleeunit", version = "1.9.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleeunit", source = "hex", outer_checksum = "DA9553CE58B67924B3C631F96FE3370C49EB6D6DC6B384EC4862CC4AAA718F3C" },
   { name = "global_value", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "global_value", source = "hex", outer_checksum = "23F74C91A7B819C43ABCCBF49DAD5BB8799D81F2A3736BA9A534BD47F309FF4F" },
-  { name = "pg_value", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "gleam_time"], otp_app = "pg_value", source = "hex", outer_checksum = "2F84426EDF9BB74A45F73E40974B8D7654C3E773DB6C619F8E6667ADEBBBF09B" },
-  { name = "pgl", version = "1.1.0", build_tools = ["gleam"], requirements = ["db_pool", "gleam_crypto", "gleam_erlang", "gleam_otp", "gleam_stdlib", "gleam_time", "pg_value"], otp_app = "pgl", source = "hex", outer_checksum = "7DF518CC131A542DF84B62B63B4460A0D91D56AB4FB88DB0C8DB0575418F62B0" },
+  { name = "pg_value", version = "2.0.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "gleam_time"], otp_app = "pg_value", source = "hex", outer_checksum = "DBC9DBCD3FD4ED2853739CE19D18420DFC9B60088C09EF0063816F97D142D538" },
+  { name = "pgl", version = "2.0.0", build_tools = ["gleam"], requirements = ["db_pool", "gleam_crypto", "gleam_erlang", "gleam_otp", "gleam_stdlib", "gleam_time", "pg_value"], otp_app = "pgl", source = "hex", outer_checksum = "455227C683973ADDD8D5C2B79A6E6B49FBECE4763B5C639301FFAA25192A4572" },
 ]
 
 [requirements]
@@ -25,5 +25,5 @@ gleam_stdlib = { version = ">= 0.44.0 and < 2.0.0" }
 gleam_time = { version = ">= 1.6.0 and < 2.0.0" }
 gleeunit = { version = ">= 1.0.0 and < 2.0.0" }
 global_value = { version = ">= 1.0.0 and < 2.0.0" }
-pg_value = { version = ">= 1.0.0 and < 2.0.0" }
-pgl = { version = ">= 1.0.0 and < 2.0.0" }
+pg_value = { version = ">= 2.0.0 and < 3.0.0" }
+pgl = { version = ">= 2.0.0 and < 3.0.0" }
