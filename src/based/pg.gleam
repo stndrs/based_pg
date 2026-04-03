@@ -1,7 +1,6 @@
-import based
 import based/db
 import based/interval
-import based/repo.{type Repo}
+import based/sql
 import based/uuid
 import gleam/dict.{type Dict}
 import gleam/int
@@ -214,52 +213,40 @@ fn to_pgl_config(config: Config) -> pgl.Config {
   |> pgl.queue_target(config.queue_target)
 }
 
-pub fn repo() -> Repo(db.Value) {
-  based.repo()
-  |> repo.on_placeholder(fn(idx) { "$" <> int.to_string(idx) })
-  |> repo.on_identifier(fn(identifier) { "\"" <> identifier <> "\"" })
+fn adapter() -> sql.Adapter(sql.Value) {
+  sql.adapter()
+  |> sql.on_placeholder(fn(i) { "$" <> int.to_string(i) })
 }
 
-pub opaque type Pg {
-  Pg(db: pgl.Db)
+pub opaque type Db {
+  Db(db: pgl.Db)
+}
+
+pub fn new(conf: Config) -> Db {
+  conf
+  |> to_pgl_config
+  |> pgl.new
+  |> Db
+}
+
+pub fn start(db: Db) -> actor.StartResult(Supervisor) {
+  pgl.start(db.db)
+}
+
+pub fn supervised(db: Db) -> supervision.ChildSpecification(Supervisor) {
+  pgl.supervised(db.db)
 }
 
 pub opaque type Connection {
   Connection(conn: pgl.Connection)
 }
 
-pub fn new(conf: Config) -> Pg {
-  conf
-  |> to_pgl_config
-  |> pgl.new
-  |> Pg
-}
-
-pub fn start(pg: Pg) -> actor.StartResult(Supervisor) {
-  pgl.start(pg.db)
-}
-
-pub fn supervised(pg: Pg) -> supervision.ChildSpecification(Supervisor) {
-  pgl.supervised(pg.db)
-}
-
-pub fn db(pg: Pg) -> db.Db(db.Value, Connection) {
-  let conn =
-    pg.db
-    |> pgl.connection
-    |> Connection
-
-  db.driver()
-  |> db.on_query(query)
-  |> db.on_execute(execute)
-  |> db.on_batch(batch)
-  |> db.new(conn)
-}
-
-pub fn shutdown(pg: Pg) -> Nil {
-  let _ = pgl.shutdown(pg.db)
-
-  Nil
+pub fn db(db: Db) -> db.Db(sql.Value, Connection) {
+  db.db
+  |> pgl.connection
+  |> Connection
+  |> db.driver(on_query: query, on_execute: execute, on_batch: batch)
+  |> db.new(adapter())
 }
 
 fn execute(sql: String, conn: Connection) -> Result(Int, db.DbError) {
@@ -267,7 +254,7 @@ fn execute(sql: String, conn: Connection) -> Result(Int, db.DbError) {
 }
 
 fn batch(
-  queries: List(db.Query(db.Value)),
+  queries: List(sql.Query(sql.Value)),
   conn: Connection,
 ) -> Result(List(db.Queried), db.DbError) {
   queries
@@ -284,7 +271,7 @@ fn batch(
   })
 }
 
-fn db_query_to_pg_query(query: db.Query(db.Value)) -> pgl.Query {
+fn db_query_to_pg_query(query: sql.Query(sql.Value)) -> pgl.Query {
   let pg_values =
     query.values
     |> list.map(based_value_to_pg_value)
@@ -293,24 +280,24 @@ fn db_query_to_pg_query(query: db.Query(db.Value)) -> pgl.Query {
   |> pgl.params(pg_values)
 }
 
-fn based_value_to_pg_value(value: db.Value) -> pg_value.Value {
+fn based_value_to_pg_value(value: sql.Value) -> pg_value.Value {
   case value {
-    db.Null -> pg_value.null
-    db.Uuid(val) -> val |> uuid.to_bit_array |> pg_value.uuid
-    db.Bool(val) -> pg_value.bool(val)
-    db.Int(val) -> pg_value.int(val)
-    db.Float(val) -> pg_value.float(val)
-    db.Text(val) -> pg_value.text(val)
-    db.Bytea(val) -> pg_value.bytea(val)
-    db.Date(val) -> pg_value.date(val)
-    db.Time(val) -> pg_value.time(val)
-    db.Datetime(date, time) -> {
+    sql.Null -> pg_value.null
+    sql.Uuid(val) -> val |> uuid.to_bit_array |> pg_value.uuid
+    sql.Bool(val) -> pg_value.bool(val)
+    sql.Int(val) -> pg_value.int(val)
+    sql.Float(val) -> pg_value.float(val)
+    sql.Text(val) -> pg_value.text(val)
+    sql.Bytea(val) -> pg_value.bytea(val)
+    sql.Date(val) -> pg_value.date(val)
+    sql.Time(val) -> pg_value.time(val)
+    sql.Datetime(date, time) -> {
       timestamp.from_calendar(date:, time:, offset: duration.seconds(0))
       |> pg_value.timestamp
     }
-    db.Timestamp(val) -> pg_value.timestamp(val)
-    db.Timestamptz(val, offset) -> {
-      let db.Offset(hours, minutes) = offset
+    sql.Timestamp(val) -> pg_value.timestamp(val)
+    sql.Timestamptz(val, offset) -> {
+      let sql.Offset(hours, minutes) = offset
 
       let pg_offset =
         pg_value.offset(hours)
@@ -318,13 +305,13 @@ fn based_value_to_pg_value(value: db.Value) -> pg_value.Value {
 
       pg_value.timestamptz(val, pg_offset)
     }
-    db.Interval(val) -> {
+    sql.Interval(val) -> {
       let interval.Interval(months:, days:, seconds:, microseconds:) = val
 
       pg_interval.Interval(months:, days:, seconds:, microseconds:)
       |> pg_value.interval
     }
-    db.Array(val) -> pg_value.array(val, based_value_to_pg_value)
+    sql.Array(val) -> pg_value.array(val, based_value_to_pg_value)
   }
 }
 
@@ -401,7 +388,7 @@ fn handle_postgres_error(
 }
 
 fn query(
-  query: db.Query(db.Value),
+  query: sql.Query(sql.Value),
   conn: Connection,
 ) -> Result(db.Queried, db.DbError) {
   query
@@ -462,12 +449,6 @@ fn to_transaction_error(
   case pgl_tx_err_to_db_tx_err(err) {
     db.NotInTransaction -> db.NotInTransaction
     db.Rollback(cause:) -> {
-      cause
-      |> handle_error
-      |> db.error_to_string
-      |> db.TransactionError
-    }
-    db.TransactionFailure(cause:) -> {
       cause
       |> handle_error
       |> db.error_to_string

@@ -9,7 +9,7 @@ gleam_stdlib = ">= 0.44.0 and < 2.0.0"
 gleam_time = ">= 1.6.0 and < 2.0.0"
 gleam_erlang = ">= 1.3.0 and < 2.0.0"
 gleam_otp = ">= 1.2.0 and < 2.0.0"
-based = { path = "../based" }
+based = { git = "https://github.com/stndrs/based", ref = "main" }
 pg_value = ">= 2.0.0 and < 3.0.0"
 pgl = ">= 2.0.0 and < 3.0.0"
 

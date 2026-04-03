@@ -12,19 +12,30 @@ gleam add based_pg
 ```
 
 ```gleam
-import based
-import based_pg
-
-const sql = "DELETE FROM users WHERE id=$1;"
+import based/db
+import based/pg
+import based/sql
 
 pub fn main() {
-  let config = load_config()
+  let database =
+    pg.config
+    |> pg.database("my_database")
+    |> pg.username("postgres")
+    |> pg.password("postgres")
+    |> pg.new
 
-  use db <- based.register(based_pg.adapter(config))
+  let assert Ok(_) = pg.start(database)
 
-  based.new_query(sql)
-  |> based.with_values([based.int(1)])
-  |> based.execute(db)
+  let db = pg.db(database)
+
+  let users = sql.table("users")
+
+  let assert Ok(_) =
+    sql.from(users)
+    |> sql.select([sql.col("name"), sql.col("email")])
+    |> sql.where([sql.col("id") |> sql.eq(sql.int(1), of: sql.value)])
+    |> db.to_sql_query(db)
+    |> db.query(db)
 }
 ```
 
