@@ -2,13 +2,13 @@ import based
 import based/pg
 import based/sql
 import exception
+import gleam/dict
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/list
 import gleam/result
 import gleam/time/calendar
 import gleam/time/timestamp
-import gleeunit/should
 import global_value
 import pg_value
 import pg_value/interval
@@ -73,9 +73,9 @@ pub fn execute_test() {
   let assert Ok(1) =
     sql.insert(into: users)
     |> sql.values(
-      sql.rows([Nil])
-      |> sql.value("name", fn(_) { pg_value.text("bill") })
-      |> sql.value("email", fn(_) { pg_value.text("bill@example.com") }),
+      sql.rows([#("bill", "bill@example.com")])
+      |> sql.value("name", fn(r) { pg_value.text(r.0) })
+      |> sql.value("email", fn(r) { pg_value.text(r.1) }),
     )
     |> sql.to_string(db.sql)
     |> based.execute(db)
@@ -83,9 +83,9 @@ pub fn execute_test() {
   let assert Ok(1) =
     sql.insert(into: users)
     |> sql.values(
-      sql.rows([Nil])
-      |> sql.value("name", fn(_) { pg_value.text("todd") })
-      |> sql.value("email", fn(_) { pg_value.text("todd@example.com") }),
+      sql.rows([#("todd", "todd@example.com")])
+      |> sql.value("name", fn(r) { pg_value.text(r.0) })
+      |> sql.value("email", fn(r) { pg_value.text(r.1) }),
     )
     |> sql.to_string(db.sql)
     |> based.execute(db)
@@ -124,7 +124,7 @@ pub fn bind_text_test() {
     |> sql.params([pg_value.text("hello")])
     |> based.query(db)
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 }
 
 pub fn bind_blob_test() {
@@ -135,7 +135,7 @@ pub fn bind_blob_test() {
     |> sql.params([pg_value.bytea(<<123, 0>>)])
     |> based.query(db)
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 }
 
 pub fn bind_bool_test() {
@@ -146,7 +146,7 @@ pub fn bind_bool_test() {
     |> sql.params([pg_value.true])
     |> based.query(db)
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 }
 
 pub fn query_test() {
@@ -157,20 +157,20 @@ pub fn query_test() {
   let assert Ok(queried) =
     sql.insert(into: users)
     |> sql.values(
-      sql.rows([Nil])
-      |> sql.value("name", fn(_) { pg_value.text("Tim") })
-      |> sql.value("email", fn(_) { pg_value.text("tim@example.com") }),
+      sql.rows([#("Tim", "tim@example.com")])
+      |> sql.value("name", fn(r) { pg_value.text(r.0) })
+      |> sql.value("email", fn(r) { pg_value.text(r.1) }),
     )
     |> sql.to_query(db.sql)
     |> based.query(db)
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 
   let assert Ok(queried) =
     sql.query("select name from users")
     |> based.query(db)
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 }
 
 pub fn transaction_test() {
@@ -188,42 +188,44 @@ pub fn transaction_test() {
     let assert Ok(queried) =
       sql.insert(into: users)
       |> sql.values(
-        sql.rows([Nil])
-        |> sql.value("name", fn(_) { pg_value.text(name) })
-        |> sql.value("email", fn(_) { pg_value.text(email) }),
+        sql.rows([#(name, email)])
+        |> sql.value("name", fn(r) { pg_value.text(r.0) })
+        |> sql.value("email", fn(r) { pg_value.text(r.1) }),
       )
       |> sql.returning([sql.column("id")])
       |> sql.to_query(db.sql)
       |> based.query(db)
 
-    queried.rows
-    |> list.try_map(fn(row) {
-      decode.run(row, {
-        use id <- decode.field(0, decode.int)
-        decode.success(id)
+    let assert Ok(ids) =
+      queried.rows
+      |> list.try_map(fn(row) {
+        decode.run(row, {
+          use id <- decode.field(0, decode.int)
+          decode.success(id)
+        })
       })
-    })
-    |> should.be_ok
-    |> list.first
-    |> should.be_ok
+
+    let assert Ok(id) = list.first(ids)
+    id
   }
 
-  based.transaction(db, pg.transaction, fn(tx_conn) {
-    let id1 = insert(tx_conn, "Tim", "tim@example.com")
-    let id2 = insert(tx_conn, "Tom", "tom@example.com")
+  let assert Ok(result) =
+    based.transaction(db, pg.transaction, fn(tx_conn) {
+      let id1 = insert(tx_conn, "Tim", "tim@example.com")
+      let id2 = insert(tx_conn, "Tom", "tom@example.com")
 
-    Ok(#(id1, id2))
-  })
-  |> should.be_ok
-  |> should.equal(#(1, 2))
+      Ok(#(id1, id2))
+    })
 
-  based.transaction(db, pg.transaction, fn(tx_conn) {
-    let _id1 = insert(tx_conn, "Tim", "tim@example.com")
-    let _id2 = insert(tx_conn, "Tom", "tom@example.com")
+  assert result == #(1, 2)
 
-    Error("Nope")
-  })
-  |> should.be_error
+  let assert Error(_) =
+    based.transaction(db, pg.transaction, fn(tx_conn) {
+      let _id1 = insert(tx_conn, "Tim", "tim@example.com")
+      let _id2 = insert(tx_conn, "Tom", "tom@example.com")
+
+      Error("Nope")
+    })
 
   let _ =
     exception.rescue(fn() {
@@ -241,31 +243,31 @@ pub fn transaction_test() {
     |> sql.to_query(db.sql)
     |> based.query(db)
 
-  queried.rows
-  |> list.try_map(fn(row) {
-    decode.run(row, {
-      use id <- decode.field(0, decode.int)
-      decode.success(id)
+  let assert Ok(ids) =
+    queried.rows
+    |> list.try_map(fn(row) {
+      decode.run(row, {
+        use id <- decode.field(0, decode.int)
+        decode.success(id)
+      })
+      |> result.replace_error(Nil)
     })
-    |> result.replace_error(Nil)
-  })
-  |> should.be_ok
-  |> should.equal([1, 2])
+
+  assert ids == [1, 2]
 }
 
 pub fn syntax_error_test() {
   use db <- connect()
 
-  let result =
+  let assert Error(result) =
     "SELEKT * FROM non_existent_table"
     |> based.execute(db)
-    |> should.be_error
 
   let assert based.DbError(based.SyntaxError(code, name, message)) = result
 
-  code |> should.equal("42601")
-  name |> should.equal("syntax_error")
-  message |> should.equal("syntax error at or near \"SELEKT\"")
+  assert code == "42601"
+  assert name == "syntax_error"
+  assert message == "syntax error at or near \"SELEKT\""
 }
 
 pub fn constraint_error_primary_key_test() {
@@ -276,37 +278,33 @@ pub fn constraint_error_primary_key_test() {
   let assert Ok(queried) =
     sql.insert(into: users)
     |> sql.values(
-      sql.rows([Nil])
-      |> sql.value("id", fn(_) { pg_value.int(1) })
-      |> sql.value("name", fn(_) { pg_value.text("First User") })
-      |> sql.value("email", fn(_) { pg_value.text("first_user@example.com") }),
+      sql.rows([#(1, "First User", "first_user@example.com")])
+      |> sql.value("id", fn(r) { pg_value.int(r.0) })
+      |> sql.value("name", fn(r) { pg_value.text(r.1) })
+      |> sql.value("email", fn(r) { pg_value.text(r.2) }),
     )
     |> sql.to_query(db.sql)
     |> based.query(db)
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 
   let assert Error(error) =
     sql.insert(into: users)
     |> sql.values(
-      sql.rows([Nil])
-      |> sql.value("id", fn(_) { pg_value.int(1) })
-      |> sql.value("name", fn(_) { pg_value.text("Duplicate User") })
-      |> sql.value("email", fn(_) {
-        pg_value.text("duplicate_user@example.com")
-      }),
+      sql.rows([#(1, "Duplicate User", "duplicate_user@example.com")])
+      |> sql.value("id", fn(r) { pg_value.int(r.0) })
+      |> sql.value("name", fn(r) { pg_value.text(r.1) })
+      |> sql.value("email", fn(r) { pg_value.text(r.2) }),
     )
     |> sql.to_query(db.sql)
     |> based.query(db)
 
   let assert based.DbError(based.ConstraintError(code, name, message)) = error
 
-  code |> should.equal("23505")
-  name |> should.equal("unique_violation")
-  message
-  |> should.equal(
-    "duplicate key value violates unique constraint \"users_pkey\"",
-  )
+  assert code == "23505"
+  assert name == "unique_violation"
+  assert message
+    == "duplicate key value violates unique constraint \"users_pkey\""
 }
 
 pub fn constraint_error_not_null_test() {
@@ -323,41 +321,39 @@ pub fn constraint_error_not_null_test() {
   let assert Error(error) =
     sql.insert(into: required)
     |> sql.values(
-      sql.rows([Nil])
-      |> sql.value("id", fn(_) { pg_value.int(1) }),
+      sql.rows([1])
+      |> sql.value("id", pg_value.int),
     )
     |> sql.to_query(db.sql)
     |> based.query(db)
 
   let assert based.DbError(based.ConstraintError(code, name, message)) = error
 
-  code |> should.equal("23502")
-  name |> should.equal("not_null_violation")
-  message
-  |> should.equal(
-    "null value in column \"name\" of relation \"required\" violates not-null constraint",
-  )
+  assert code == "23502"
+  assert name == "not_null_violation"
+  assert message
+    == "null value in column \"name\" of relation \"required\" violates not-null constraint"
 }
 
 pub fn transaction_rollback_test() {
   use db <- connect()
 
-  "DROP TABLE IF EXISTS tx_test"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "DROP TABLE IF EXISTS tx_test"
+    |> based.execute(db)
 
-  "CREATE TABLE tx_test (id INTEGER PRIMARY KEY, name TEXT)"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "CREATE TABLE tx_test (id INTEGER PRIMARY KEY, name TEXT)"
+    |> based.execute(db)
 
   let tx_test = sql.table("tx_test")
 
   let assert Ok(_queried) =
     sql.insert(into: tx_test)
     |> sql.values(
-      sql.rows([Nil])
-      |> sql.value("id", fn(_) { pg_value.int(1) })
-      |> sql.value("name", fn(_) { pg_value.text("Before") }),
+      sql.rows([#(1, "Before")])
+      |> sql.value("id", fn(r) { pg_value.int(r.0) })
+      |> sql.value("name", fn(r) { pg_value.text(r.1) }),
     )
     |> sql.returning([sql.star])
     |> sql.to_query(db.sql)
@@ -369,16 +365,16 @@ pub fn transaction_rollback_test() {
     |> sql.to_query(db.sql)
     |> based.query(db)
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 
   let assert Error(error) =
     based.transaction(db, pg.transaction, fn(tx) {
       let assert Ok(_queried) =
         sql.insert(into: tx_test)
         |> sql.values(
-          sql.rows([Nil])
-          |> sql.value("id", fn(_) { pg_value.int(2) })
-          |> sql.value("name", fn(_) { pg_value.text("Transaction") }),
+          sql.rows([#(2, "Transaction")])
+          |> sql.value("id", fn(r) { pg_value.int(r.0) })
+          |> sql.value("name", fn(r) { pg_value.text(r.1) }),
         )
         |> sql.returning([sql.star])
         |> sql.to_query(tx.sql)
@@ -386,9 +382,9 @@ pub fn transaction_rollback_test() {
 
       sql.insert(into: tx_test)
       |> sql.values(
-        sql.rows([Nil])
-        |> sql.value("id", fn(_) { pg_value.int(1) })
-        |> sql.value("name", fn(_) { pg_value.text("Duplicate") }),
+        sql.rows([#(1, "Duplicate")])
+        |> sql.value("id", fn(r) { pg_value.int(r.0) })
+        |> sql.value("name", fn(r) { pg_value.text(r.1) }),
       )
       |> sql.returning([sql.star])
       |> sql.to_query(tx.sql)
@@ -397,8 +393,7 @@ pub fn transaction_rollback_test() {
     })
 
   let assert based.Rollback(message) = error
-
-  message |> should.equal("Expected error")
+  assert message == "Expected error"
 
   let assert Ok(queried) =
     sql.from(tx_test)
@@ -406,7 +401,7 @@ pub fn transaction_rollback_test() {
     |> sql.to_query(db.sql)
     |> based.query(db)
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 }
 
 pub fn table_not_exist_error_test() {
@@ -422,10 +417,9 @@ pub fn table_not_exist_error_test() {
 
   let assert based.DbError(based.SyntaxError(code:, name:, message:)) = error
 
-  code |> should.equal("42P01")
-  name |> should.equal("undefined_table")
-  message
-  |> should.equal("relation \"non_existent_table\" does not exist")
+  assert code == "42P01"
+  assert name == "undefined_table"
+  assert message == "relation \"non_existent_table\" does not exist"
 }
 
 // Date tests
@@ -435,25 +429,24 @@ pub fn date_bind_test() {
 
   let date = calendar.Date(year: 2025, month: calendar.April, day: 19)
 
-  let queried =
+  let assert Ok(queried) =
     sql.query("SELECT $1::date")
     |> sql.params([pg_value.date(date)])
     |> based.query(db)
-    |> should.be_ok
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 }
 
 pub fn date_roundtrip_test() {
   use db <- connect()
 
-  "DROP TABLE IF EXISTS date_test"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "DROP TABLE IF EXISTS date_test"
+    |> based.execute(db)
 
-  "CREATE TABLE date_test (id SERIAL PRIMARY KEY, date_col DATE)"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "CREATE TABLE date_test (id SERIAL PRIMARY KEY, date_col DATE)"
+    |> based.execute(db)
 
   let dates = [
     calendar.Date(2025, calendar.April, 19),
@@ -481,8 +474,8 @@ pub fn date_roundtrip_test() {
     let assert Ok(queried) =
       sql.insert(into: date_test)
       |> sql.values(
-        sql.rows([Nil])
-        |> sql.value("date_col", fn(_) { pg_value.date(date) }),
+        sql.rows([date])
+        |> sql.value("date_col", pg_value.date),
       )
       |> sql.returning([sql.column("date_col")])
       |> sql.to_query(db.sql)
@@ -491,8 +484,8 @@ pub fn date_roundtrip_test() {
     queried
   }
 
-  returned |> should.equal(dates)
-  returned |> list.length |> should.equal(5)
+  assert returned == dates
+  assert 5 == list.length(returned)
 }
 
 pub fn interval_bind_test() {
@@ -500,31 +493,34 @@ pub fn interval_bind_test() {
 
   let interval = interval.seconds(3600)
 
-  let queried =
+  let assert Ok(queried) =
     sql.query("SELECT $1::interval")
     |> sql.params([pg_value.interval(interval)])
     |> based.query(db)
-    |> should.be_ok
 
-  queried.count |> should.equal(1)
-  queried.rows
-  |> should.equal([
-    dynamic.array([
-      dynamic.array([dynamic.int(0), dynamic.int(0), dynamic.int(3_600_000_000)]),
-    ]),
-  ])
+  assert 1 == queried.count
+  assert queried.rows
+    == [
+      dynamic.array([
+        dynamic.array([
+          dynamic.int(0),
+          dynamic.int(0),
+          dynamic.int(3_600_000_000),
+        ]),
+      ]),
+    ]
 }
 
 pub fn interval_roundtrip_test() {
   use db <- connect()
 
-  "DROP TABLE IF EXISTS interval_test"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "DROP TABLE IF EXISTS interval_test"
+    |> based.execute(db)
 
-  "CREATE TABLE interval_test (id SERIAL PRIMARY KEY, dur_col INTERVAL)"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "CREATE TABLE interval_test (id SERIAL PRIMARY KEY, dur_col INTERVAL)"
+    |> based.execute(db)
 
   let interval_test = sql.table("interval_test")
 
@@ -552,14 +548,14 @@ pub fn interval_roundtrip_test() {
     let assert Ok(queried) =
       sql.insert(into: interval_test)
       |> sql.values(
-        sql.rows([Nil])
-        |> sql.value("dur_col", fn(_) { pg_value.interval(interval) }),
+        sql.rows([interval])
+        |> sql.value("dur_col", pg_value.interval),
       )
       |> sql.returning([sql.column("dur_col")])
       |> sql.to_query(db.sql)
       |> based.query(db)
 
-    queried.count |> should.equal(1)
+    assert 1 == queried.count
   }
 
   let assert Ok(queried) =
@@ -568,7 +564,7 @@ pub fn interval_roundtrip_test() {
     |> sql.to_query(db.sql)
     |> based.query(db)
 
-  queried.count |> should.equal(6)
+  assert 6 == queried.count
 
   let assert Ok(returning) =
     based.decode(queried, decode.list(of: interval.decoder()))
@@ -598,25 +594,24 @@ pub fn time_bind_test() {
       nanoseconds: 123_456_789,
     )
 
-  let queried =
+  let assert Ok(queried) =
     sql.query("SELECT $1::time")
     |> sql.params([pg_value.time(time)])
     |> based.query(db)
-    |> should.be_ok
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 }
 
 pub fn time_roundtrip_test() {
   use db <- connect()
 
-  "DROP TABLE IF EXISTS time_test"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "DROP TABLE IF EXISTS time_test"
+    |> based.execute(db)
 
-  "CREATE TABLE time_test (id SERIAL PRIMARY KEY, time_col TIME)"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "CREATE TABLE time_test (id SERIAL PRIMARY KEY, time_col TIME)"
+    |> based.execute(db)
 
   let times = [
     // Midnight
@@ -639,13 +634,13 @@ pub fn time_roundtrip_test() {
     let assert Ok(queried) =
       sql.insert(into: time_test)
       |> sql.values(
-        sql.rows([Nil])
-        |> sql.value("time_col", fn(_) { pg_value.time(time) }),
+        sql.rows([time])
+        |> sql.value("time_col", pg_value.time),
       )
       |> sql.to_query(db.sql)
       |> based.query(db)
 
-    queried.count |> should.equal(1)
+    assert 1 == queried.count
   }
 
   let assert Ok(returning) =
@@ -656,8 +651,8 @@ pub fn time_roundtrip_test() {
     |> based.query(db)
     |> result.try(based.decode(_, time_decoder()))
 
-  returning.count |> should.equal(5)
-  returning.rows |> should.equal(times)
+  assert 5 == returning.count
+  assert returning.rows == times
 }
 
 fn time_decoder() -> decode.Decoder(calendar.TimeOfDay) {
@@ -677,25 +672,24 @@ pub fn timestamp_bind_test() {
   // 2025-04-19 20:30:00 UTC
   let ts = timestamp.from_unix_seconds(1_713_557_400)
 
-  let queried =
+  let assert Ok(queried) =
     sql.query("SELECT $1::timestamp")
     |> sql.params([pg_value.timestamp(ts)])
     |> based.query(db)
-    |> should.be_ok
 
-  queried.count |> should.equal(1)
+  assert 1 == queried.count
 }
 
 pub fn timestamp_roundtrip_test() {
   use db <- connect()
 
-  "DROP TABLE IF EXISTS timestamp_test"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "DROP TABLE IF EXISTS timestamp_test"
+    |> based.execute(db)
 
-  "CREATE TABLE timestamp_test (id SERIAL PRIMARY KEY, ts_col TIMESTAMP)"
-  |> based.execute(db)
-  |> should.be_ok
+  let assert Ok(_) =
+    "CREATE TABLE timestamp_test (id SERIAL PRIMARY KEY, ts_col TIMESTAMP)"
+    |> based.execute(db)
 
   let timestamps = [
     // 2025-04-19 20:30:00 UTC
@@ -718,13 +712,13 @@ pub fn timestamp_roundtrip_test() {
     let assert Ok(queried) =
       sql.insert(into: timestamp_test)
       |> sql.values(
-        sql.rows([Nil])
-        |> sql.value("ts_col", fn(_) { pg_value.timestamp(ts) }),
+        sql.rows([ts])
+        |> sql.value("ts_col", pg_value.timestamp),
       )
       |> sql.to_query(db.sql)
       |> based.query(db)
 
-    queried.count |> should.equal(1)
+    assert 1 == queried.count
   }
 
   let decoder = {
@@ -740,4 +734,337 @@ pub fn timestamp_roundtrip_test() {
     |> based.all(db, decoder)
 
   assert timestamps == returned
+}
+
+pub fn from_url_valid_test() {
+  let assert Ok(_config) =
+    pg.from_url("postgres://user:pass@localhost:5432/mydb")
+}
+
+pub fn from_url_without_password_test() {
+  let assert Ok(_config) = pg.from_url("postgres://user@localhost:5432/mydb")
+}
+
+pub fn from_url_postgresql_scheme_test() {
+  let assert Ok(_config) =
+    pg.from_url("postgresql://user:pass@localhost:5432/mydb")
+}
+
+pub fn from_url_invalid_scheme_test() {
+  let assert Error(Nil) = pg.from_url("mysql://user:pass@localhost:5432/mydb")
+}
+
+pub fn from_url_invalid_string_test() {
+  let assert Error(Nil) = pg.from_url("not a url at all")
+}
+
+pub fn batch_test() {
+  use db <- with_db_setup()
+
+  let users = sql.table("users")
+
+  let queries =
+    ["alice", "bob", "charlie"]
+    |> list.map(fn(name) {
+      sql.insert(into: users)
+      |> sql.values(
+        sql.rows([name])
+        |> sql.value("name", pg_value.text)
+        |> sql.value("email", fn(n) { pg_value.text(n <> "@example.com") }),
+      )
+      |> sql.to_query(db.sql)
+    })
+
+  let assert Ok(results) = based.batch(queries, db)
+
+  assert 3 == list.length(results)
+  list.each(results, fn(queried) {
+    assert 1 == queried.count
+  })
+
+  let assert Ok(queried) =
+    sql.from(users)
+    |> sql.select([sql.count("*")])
+    |> sql.to_query(db.sql)
+    |> based.query(db)
+
+  assert 1 == queried.count
+}
+
+pub fn batch_empty_test() {
+  use db <- connect()
+
+  let assert Ok(results) = based.batch([], db)
+  assert results == []
+}
+
+pub fn begin_commit_test() {
+  use db <- connect()
+
+  let assert Ok(_) =
+    "DROP TABLE IF EXISTS manual_tx_test"
+    |> based.execute(db)
+
+  let assert Ok(_) =
+    "CREATE TABLE manual_tx_test (id INTEGER PRIMARY KEY, name TEXT)"
+    |> based.execute(db)
+
+  let manual_tx_test = sql.table("manual_tx_test")
+
+  let assert Ok(_) =
+    based.transaction(db, pg.transaction, fn(tx) {
+      let assert Ok(1) =
+        sql.insert(into: manual_tx_test)
+        |> sql.values(
+          sql.rows([#(1, "committed")])
+          |> sql.value("id", fn(r) { pg_value.int(r.0) })
+          |> sql.value("name", fn(r) { pg_value.text(r.1) }),
+        )
+        |> sql.to_string(tx.sql)
+        |> based.execute(tx)
+
+      let assert Ok(queried) =
+        sql.from(manual_tx_test)
+        |> sql.select([sql.count("*")])
+        |> sql.to_query(tx.sql)
+        |> based.query(tx)
+
+      assert 1 == queried.count
+
+      Ok(Nil)
+    })
+
+  let assert Ok(queried) =
+    sql.from(manual_tx_test)
+    |> sql.select([sql.count("*")])
+    |> sql.to_query(db.sql)
+    |> based.query(db)
+
+  assert 1 == queried.count
+}
+
+pub fn begin_rollback_via_error_test() {
+  use db <- connect()
+
+  let assert Ok(_) =
+    "DROP TABLE IF EXISTS manual_rb_test"
+    |> based.execute(db)
+
+  let assert Ok(_) =
+    "CREATE TABLE manual_rb_test (id INTEGER PRIMARY KEY, name TEXT)"
+    |> based.execute(db)
+
+  let manual_rb_test = sql.table("manual_rb_test")
+
+  let assert Ok(1) =
+    sql.insert(into: manual_rb_test)
+    |> sql.values(
+      sql.rows([#(1, "before")])
+      |> sql.value("id", fn(r) { pg_value.int(r.0) })
+      |> sql.value("name", fn(r) { pg_value.text(r.1) }),
+    )
+    |> sql.to_string(db.sql)
+    |> based.execute(db)
+
+  let assert Error(_) =
+    based.transaction(db, pg.transaction, fn(tx) {
+      let assert Ok(1) =
+        sql.insert(into: manual_rb_test)
+        |> sql.values(
+          sql.rows([#(2, "rolled_back")])
+          |> sql.value("id", fn(r) { pg_value.int(r.0) })
+          |> sql.value("name", fn(r) { pg_value.text(r.1) }),
+        )
+        |> sql.to_string(tx.sql)
+        |> based.execute(tx)
+
+      Error("rollback please")
+    })
+
+  let assert Ok(queried) =
+    sql.from(manual_rb_test)
+    |> sql.select([sql.count("*")])
+    |> sql.to_query(db.sql)
+    |> based.query(db)
+
+  assert 1 == queried.count
+}
+
+pub fn bind_null_test() {
+  use db <- connect()
+
+  let assert Ok(queried) =
+    sql.query("SELECT $1::text")
+    |> sql.params([pg_value.Null])
+    |> based.query(db)
+
+  assert 1 == queried.count
+}
+
+pub fn null_insert_roundtrip_test() {
+  use db <- with_db_setup()
+
+  let users = sql.table("users")
+
+  let assert Ok(queried) =
+    sql.insert(into: users)
+    |> sql.values(
+      sql.rows([#("no_ts", "no_ts@example.com")])
+      |> sql.value("name", fn(r) { pg_value.text(r.0) })
+      |> sql.value("email", fn(r) { pg_value.text(r.1) })
+      |> sql.value("created_at", fn(_) { pg_value.Null }),
+    )
+    |> sql.returning([sql.column("created_at")])
+    |> sql.to_query(db.sql)
+    |> based.query(db)
+
+  assert 1 == queried.count
+}
+
+pub fn rows_as_dict_test() {
+  let db =
+    pg.config
+    |> pg.database("based_pg")
+    |> pg.username("postgres")
+    |> pg.password("postgres")
+    |> pg.port(54_322)
+    |> pg.ssl(pg.SslDisabled)
+    |> pg.rows_as_dict(True)
+    |> pg.new
+
+  let assert Ok(_) = pg.start(db)
+
+  let db = pg.db(db)
+
+  let assert Ok(queried) =
+    sql.query("SELECT 1 as num, 'hello' as greeting")
+    |> based.query(db)
+
+  assert 1 == queried.count
+
+  let assert [row] = queried.rows
+  let assert Ok(row_dict) =
+    decode.run(row, decode.dict(decode.string, decode.dynamic))
+
+  assert dict.has_key(row_dict, "num")
+  assert dict.has_key(row_dict, "greeting")
+}
+
+pub fn bind_empty_string_test() {
+  use db <- connect()
+
+  let assert Ok(queried) =
+    sql.query("SELECT $1::text")
+    |> sql.params([pg_value.text("")])
+    |> based.query(db)
+
+  assert 1 == queried.count
+
+  let assert Ok(rows) =
+    based.decode(queried, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+
+  assert rows.rows == [""]
+}
+
+pub fn bind_large_int_test() {
+  use db <- connect()
+
+  let large = 9_223_372_036_854_775_807
+
+  let assert Ok(queried) =
+    sql.query("SELECT $1::bigint")
+    |> sql.params([pg_value.int(large)])
+    |> based.query(db)
+
+  assert 1 == queried.count
+
+  let assert Ok(rows) =
+    based.decode(queried, {
+      use val <- decode.field(0, decode.int)
+      decode.success(val)
+    })
+
+  assert rows.rows == [large]
+}
+
+pub fn bind_negative_int_test() {
+  use db <- connect()
+
+  let assert Ok(queried) =
+    sql.query("SELECT $1::integer")
+    |> sql.params([pg_value.int(-42)])
+    |> based.query(db)
+
+  assert 1 == queried.count
+
+  let assert Ok(rows) =
+    based.decode(queried, {
+      use val <- decode.field(0, decode.int)
+      decode.success(val)
+    })
+
+  assert rows.rows == [-42]
+}
+
+pub fn bind_empty_bytea_test() {
+  use db <- connect()
+
+  let assert Ok(queried) =
+    sql.query("SELECT $1::bytea")
+    |> sql.params([pg_value.bytea(<<>>)])
+    |> based.query(db)
+
+  assert 1 == queried.count
+}
+
+pub fn bind_false_test() {
+  use db <- connect()
+
+  let assert Ok(queried) =
+    sql.query("SELECT $1::bool")
+    |> sql.params([pg_value.false])
+    |> based.query(db)
+
+  assert 1 == queried.count
+
+  let assert Ok(rows) =
+    based.decode(queried, {
+      use val <- decode.field(0, decode.bool)
+      decode.success(val)
+    })
+
+  assert rows.rows == [False]
+}
+
+pub fn bind_zero_float_test() {
+  use db <- connect()
+
+  let assert Ok(queried) =
+    sql.query("SELECT $1::float8")
+    |> sql.params([pg_value.float(0.0)])
+    |> based.query(db)
+
+  assert 1 == queried.count
+
+  let assert Ok(rows) =
+    based.decode(queried, {
+      use val <- decode.field(0, decode.float)
+      decode.success(val)
+    })
+
+  assert rows.rows == [0.0]
+}
+
+pub fn bind_negative_float_test() {
+  use db <- connect()
+
+  let assert Ok(queried) =
+    sql.query("SELECT $1::float8")
+    |> sql.params([pg_value.float(-123.456)])
+    |> based.query(db)
+
+  assert 1 == queried.count
 }
