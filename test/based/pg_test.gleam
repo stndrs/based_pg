@@ -17,9 +17,11 @@ fn global_db() -> based.Db(pg_value.Value, pg.Connection) {
   global_value.create_with_unique_name("pg_db_test", fn() {
     let db =
       pg.config
-      |> pg.database("gleam_pgl_test")
+      |> pg.database("based_pg")
       |> pg.username("postgres")
       |> pg.password("postgres")
+      |> pg.port(54_322)
+      |> pg.ssl(pg.SslDisabled)
       |> pg.new
 
     let assert Ok(_) = pg.start(db)
