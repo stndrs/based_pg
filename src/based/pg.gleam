@@ -80,7 +80,7 @@ pub fn ssl(config: Config, ssl: Ssl) -> Config {
   pgl.ssl(config, ssl)
 }
 
-/// Configures rows to be returns as `Dict` rather than n-tuples.
+/// Configures rows to be returned as `Dict` rather than n-tuples.
 pub fn rows_as_dict(config: Config, rows_as_dict: Bool) -> Config {
   pgl.rows_as_dict(config, rows_as_dict)
 }

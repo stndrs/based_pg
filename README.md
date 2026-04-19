@@ -3,18 +3,18 @@
 [![Package Version](https://img.shields.io/hexpm/v/based_pg)](https://hex.pm/packages/based_pg)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/based_pg/)
 
-## WIP
-
-This package should be used with [`based`](https://github.com/stndrs/based)
+A PostgreSQL adapter for [`based`](https://github.com/stndrs/based).
 
 ```sh
 gleam add based_pg
 ```
 
 ```gleam
-import based/db
+import based
 import based/pg
 import based/sql
+import gleam/dynamic/decode
+import pg_value
 
 pub fn main() {
   let database =
@@ -30,12 +30,18 @@ pub fn main() {
 
   let users = sql.table("users")
 
-  let assert Ok(_) =
+  let decoder = {
+    use name <- decode.field(0, decode.string)
+    use email <- decode.field(1, decode.string)
+    decode.success(#(name, email))
+  }
+
+  let assert Ok(rows) =
     sql.from(users)
-    |> sql.select([sql.col("name"), sql.col("email")])
-    |> sql.where([sql.col("id") |> sql.eq(sql.int(1), of: sql.value)])
-    |> db.to_sql_query(db)
-    |> db.query(db)
+    |> sql.select([sql.column("name"), sql.column("email")])
+    |> sql.where([sql.column("id") |> sql.eq(pg_value.int(1), of: sql.val)])
+    |> sql.to_query(db.sql)
+    |> based.all(db, decoder)
 }
 ```
 
@@ -44,8 +50,7 @@ Further documentation can be found at <https://hexdocs.pm/based_pg>.
 ## Development
 
 ```sh
-docker-compose up # Starts postgres and adminer containers. Required for tests
-gleam run         # Run the project
+docker-compose up # Starts postgres container. Required for tests
 gleam test        # Run the tests
 gleam shell       # Run an Erlang shell
 ```
