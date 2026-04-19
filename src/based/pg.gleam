@@ -110,7 +110,10 @@ pub fn queue_target(config: Config, queue_target: Int) -> Config {
   pgl.queue_target(config, queue_target)
 }
 
-/// Build a `Config` from a connection url
+/// Build a `Config` from a PostgreSQL connection URL.
+///
+/// Supports `postgres://` and `postgresql://` schemes.
+/// Returns `Error(Nil)` if the URL is invalid or uses an unsupported scheme.
 pub fn from_url(url: String) -> Result(Config, Nil) {
   pgl.from_url(url)
 }
@@ -129,14 +132,19 @@ pub opaque type Db {
   Db(db: pgl.Db)
 }
 
+/// Creates a new database instance from a config. Call `start` to open
+/// the connection pool before using it.
 pub fn new(config: Config) -> Db {
   Db(pgl.new(config))
 }
 
+/// Starts the connection pool for the given database under a new supervisor.
 pub fn start(db: Db) -> actor.StartResult(Supervisor) {
   pgl.start(db.db)
 }
 
+/// Returns a child specification for starting the connection pool under an
+/// existing supervision tree.
 pub fn supervised(db: Db) -> supervision.ChildSpecification(Supervisor) {
   pgl.supervised(db.db)
 }
@@ -145,6 +153,8 @@ pub opaque type Connection {
   Connection(conn: pgl.Connection)
 }
 
+/// Returns a `based.Db` that can be used with `based.query`, `based.execute`,
+/// `based.all`, and other `based` functions.
 pub fn db(db: Db) -> based.Db(pg_value.Value, Connection) {
   db.db
   |> pgl.connection
@@ -269,6 +279,9 @@ fn query(
   })
 }
 
+/// Executes a function within a database transaction. If `next` returns
+/// `Ok`, the transaction is committed. If it returns `Error` or panics,
+/// the transaction is rolled back.
 pub fn transaction(
   conn: Connection,
   next: fn(Connection) -> Result(t, err),
@@ -280,6 +293,7 @@ pub fn transaction(
   |> result.map_error(pgl_tx_err_to_db_tx_err)
 }
 
+/// Manually begins a transaction on the given connection.
 pub fn begin(
   conn: Connection,
 ) -> Result(Connection, based.TransactionError(err)) {
@@ -298,6 +312,7 @@ fn pgl_tx_err_to_db_tx_err(
   }
 }
 
+/// Commits the current transaction on the given connection.
 pub fn commit(
   conn: Connection,
 ) -> Result(Connection, based.TransactionError(err)) {
@@ -306,6 +321,7 @@ pub fn commit(
   |> result.map_error(to_transaction_error)
 }
 
+/// Rolls back the current transaction on the given connection.
 pub fn rollback(
   conn: Connection,
 ) -> Result(Connection, based.TransactionError(err)) {
