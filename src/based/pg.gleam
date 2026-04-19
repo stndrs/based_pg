@@ -1,0 +1,346 @@
+import based
+import based/sql
+import gleam/dict.{type Dict}
+import gleam/int
+import gleam/list
+import gleam/otp/actor
+import gleam/otp/static_supervisor.{type Supervisor}
+import gleam/otp/supervision
+import gleam/result
+import pg_value
+import pgl
+
+pub type Config =
+  pgl.Config
+
+pub const config = pgl.config
+
+/// The IP version to use
+pub type IpVersion {
+  Ipv4
+  Ipv6
+}
+
+pub type Ssl {
+  /// Disables SSL leaving connections unsecured. Avoid using this in production.
+  SslDisabled
+  /// Enables SSL and checks the CA certificate.
+  SslVerified
+  /// Enables SSL but does not check the CA certificate.
+  SslUnverified
+}
+
+/// Name of the application connecting to the database.
+pub fn application(config: Config, application: String) -> Config {
+  pgl.application(config, application)
+}
+
+/// The database server hostname.
+pub fn host(config: Config, host: String) -> Config {
+  pgl.host(config, host)
+}
+
+/// The port on which the database server is listening.
+pub fn port(config: Config, port: Int) -> Config {
+  pgl.port(config, port)
+}
+
+/// The username to connect to the database as.
+pub fn username(config: Config, username: String) -> Config {
+  pgl.username(config, username)
+}
+
+/// The password of the user.
+pub fn password(config: Config, password: String) -> Config {
+  pgl.password(config, password)
+}
+
+/// The name of the database to use.
+pub fn database(config: Config, database: String) -> Config {
+  pgl.database(config, database)
+}
+
+/// Sets other postgres connection parameters.
+pub fn connection_parameter(
+  config: Config,
+  name name: String,
+  value value: String,
+) -> Config {
+  pgl.connection_parameter(config, name, value)
+}
+
+/// Whether SSL should be used.
+pub fn ssl(config: Config, ssl: Ssl) -> Config {
+  let ssl = case ssl {
+    SslDisabled -> pgl.SslDisabled
+    SslVerified -> pgl.SslVerified
+    SslUnverified -> pgl.SslUnverified
+  }
+
+  pgl.ssl(config, ssl)
+}
+
+/// Configures rows to be returned as `Dict` rather than n-tuples.
+pub fn rows_as_dict(config: Config, rows_as_dict: Bool) -> Config {
+  pgl.rows_as_dict(config, rows_as_dict)
+}
+
+/// Which IP version to use
+pub fn ip_version(config: Config, ip_version: IpVersion) -> Config {
+  let ip_version = case ip_version {
+    Ipv4 -> pgl.Ipv4
+    Ipv6 -> pgl.Ipv6
+  }
+
+  pgl.ip_version(config, ip_version)
+}
+
+/// Sets the size of the connection pool.
+pub fn pool_size(config: Config, pool_size: Int) -> Config {
+  pgl.pool_size(config, pool_size)
+}
+
+/// How often idle connections should ping the database server.
+pub fn idle_interval(config: Config, idle_interval: Int) -> Config {
+  pgl.idle_interval(config, idle_interval)
+}
+
+/// How long it should take to check out a connection from the connection pool.
+pub fn queue_target(config: Config, queue_target: Int) -> Config {
+  pgl.queue_target(config, queue_target)
+}
+
+/// Build a `Config` from a PostgreSQL connection URL.
+///
+/// Supports `postgres://` and `postgresql://` schemes.
+/// Returns `Error(Nil)` if the URL is invalid or uses an unsupported scheme.
+pub fn from_url(url: String) -> Result(Config, Nil) {
+  pgl.from_url(url)
+}
+
+fn adapter() -> sql.Adapter(pg_value.Value) {
+  sql.adapter()
+  |> sql.on_placeholder(fn(i) { "$" <> int.to_string(i) })
+  |> sql.on_identifier(fn(ident) { "\"" <> ident <> "\"" })
+  |> sql.on_value(pg_value.to_string)
+  |> sql.on_int(pg_value.int)
+  |> sql.on_text(pg_value.text)
+  |> sql.on_null(fn() { pg_value.Null })
+}
+
+pub opaque type Db {
+  Db(db: pgl.Db)
+}
+
+/// Creates a new database instance from a config. Call `start` to open
+/// the connection pool before using it.
+pub fn new(config: Config) -> Db {
+  Db(pgl.new(config))
+}
+
+/// Starts the connection pool for the given database under a new supervisor.
+pub fn start(db: Db) -> actor.StartResult(Supervisor) {
+  pgl.start(db.db)
+}
+
+/// Returns a child specification for starting the connection pool under an
+/// existing supervision tree.
+pub fn supervised(db: Db) -> supervision.ChildSpecification(Supervisor) {
+  pgl.supervised(db.db)
+}
+
+pub opaque type Connection {
+  Connection(conn: pgl.Connection)
+}
+
+/// Returns a `based.Db` that can be used with `based.query`, `based.execute`,
+/// `based.all`, and other `based` functions.
+pub fn db(db: Db) -> based.Db(pg_value.Value, Connection) {
+  db.db
+  |> pgl.connection
+  |> Connection
+  |> based.driver(on_query: query, on_execute: execute, on_batch: batch)
+  |> based.new(adapter())
+}
+
+fn execute(sql: String, conn: Connection) -> Result(Int, based.BasedError) {
+  pgl.execute(sql, conn.conn) |> result.map_error(handle_error)
+}
+
+fn batch(
+  queries: List(sql.Query(pg_value.Value)),
+  conn: Connection,
+) -> Result(List(based.Queried), based.BasedError) {
+  queries
+  |> list.map(db_query_to_pg_query)
+  |> pgl.batch(conn.conn)
+  |> result.map_error(handle_error)
+  |> result.map(fn(queried) {
+    queried
+    |> list.map(fn(pgl_queried) {
+      let pgl.Queried(count:, fields:, rows:) = pgl_queried
+
+      based.Queried(count:, fields:, rows:)
+    })
+  })
+}
+
+fn db_query_to_pg_query(query: sql.Query(pg_value.Value)) -> pgl.Query {
+  pgl.sql(query.sql)
+  |> pgl.values(query.values)
+}
+
+fn handle_error(err: pgl.PglError) -> based.BasedError {
+  case err {
+    pgl.PostgresError(code:, name:, message:, fields:) ->
+      handle_postgres_error(code, name, message, fields)
+      |> based.DbError
+    pgl.ConnectionError(message:) ->
+      based.ConnectionError(message:) |> based.DbError
+    pgl.ConnectionTimeout -> based.ConnectionTimeout |> based.DbError
+    pgl_error -> based.BasedError(message: pgl.error_to_string(pgl_error))
+  }
+}
+
+fn handle_postgres_error(
+  code: String,
+  name: String,
+  message: String,
+  fields: Dict(pgl.Field, String),
+) -> based.DatabaseError {
+  case dict.has_key(fields, pgl.Constraint) {
+    True -> based.ConstraintError(code:, name:, message:)
+    False -> {
+      case code {
+        // constraint error codes
+        "23000" | "23001" | "23502" | "23503" | "23505" | "23514" | "23P01" ->
+          based.ConstraintError(code:, name:, message:)
+        // syntax error codes
+        "42601"
+        | "42846"
+        | "42803"
+        | "42P20"
+        | "42P19"
+        | "42830"
+        | "42602"
+        | "42622"
+        | "42939"
+        | "42804"
+        | "42P18"
+        | "42P21"
+        | "42P22"
+        | "42809"
+        | "428C9"
+        | "42703"
+        | "42883"
+        | "42P01"
+        | "42P02"
+        | "42704"
+        | "42701"
+        | "42P03"
+        | "42P04"
+        | "42723"
+        | "42P05"
+        | "42P06"
+        | "42P07"
+        | "42712"
+        | "42710"
+        | "42702"
+        | "42725"
+        | "42P08"
+        | "42P09"
+        | "42P10"
+        | "42611"
+        | "42P11"
+        | "42P12"
+        | "42P13"
+        | "42P14"
+        | "42P15"
+        | "42P16"
+        | "42P17" -> based.SyntaxError(code:, name:, message:)
+        _ -> based.DatabaseError(code:, name:, message:)
+      }
+    }
+  }
+}
+
+fn query(
+  query: sql.Query(pg_value.Value),
+  conn: Connection,
+) -> Result(based.Queried, based.BasedError) {
+  query
+  |> db_query_to_pg_query
+  |> pgl.query(conn.conn)
+  |> result.map_error(handle_error)
+  |> result.map(fn(pgl_queried) {
+    let pgl.Queried(count:, fields:, rows:) = pgl_queried
+
+    based.Queried(count:, fields:, rows:)
+  })
+}
+
+/// Executes a function within a database transaction. If `next` returns
+/// `Ok`, the transaction is committed. If it returns `Error` or panics,
+/// the transaction is rolled back.
+pub fn transaction(
+  conn: Connection,
+  next: fn(Connection) -> Result(t, err),
+) -> Result(t, based.TransactionError(err)) {
+  pgl.transaction(conn.conn, fn(pgl_tx) {
+    let tx_conn = Connection(conn: pgl_tx)
+    next(tx_conn)
+  })
+  |> result.map_error(pgl_tx_err_to_db_tx_err)
+}
+
+/// Manually begins a transaction on the given connection.
+pub fn begin(
+  conn: Connection,
+) -> Result(Connection, based.TransactionError(err)) {
+  pgl.begin(conn.conn)
+  |> result.map(fn(pgl_conn) { Connection(conn: pgl_conn) })
+  |> result.map_error(to_transaction_error)
+}
+
+fn pgl_tx_err_to_db_tx_err(
+  err: pgl.TransactionError(err),
+) -> based.TransactionError(err) {
+  case err {
+    pgl.RollbackError(cause:) -> based.Rollback(cause:)
+    pgl.NotInTransaction -> based.NotInTransaction
+    pgl.TransactionError(message:) -> based.TransactionError(message:)
+  }
+}
+
+/// Commits the current transaction on the given connection.
+pub fn commit(
+  conn: Connection,
+) -> Result(Connection, based.TransactionError(err)) {
+  pgl.commit(conn.conn)
+  |> result.map(fn(pgl_conn) { Connection(conn: pgl_conn) })
+  |> result.map_error(to_transaction_error)
+}
+
+/// Rolls back the current transaction on the given connection.
+pub fn rollback(
+  conn: Connection,
+) -> Result(Connection, based.TransactionError(err)) {
+  pgl.rollback(conn.conn)
+  |> result.map(fn(pgl_conn) { Connection(conn: pgl_conn) })
+  |> result.map_error(to_transaction_error)
+}
+
+fn to_transaction_error(
+  err: pgl.TransactionError(pgl.PglError),
+) -> based.TransactionError(err) {
+  case pgl_tx_err_to_db_tx_err(err) {
+    based.NotInTransaction -> based.NotInTransaction
+    based.Rollback(cause:) -> {
+      cause
+      |> handle_error
+      |> based.error_to_string
+      |> based.TransactionError
+    }
+    based.TransactionError(message:) -> based.TransactionError(message:)
+  }
+}
