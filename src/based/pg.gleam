@@ -1,7 +1,6 @@
 import based
 import based/sql
 import gleam/dict.{type Dict}
-import gleam/function
 import gleam/int
 import gleam/list
 import gleam/otp/actor
@@ -119,7 +118,7 @@ pub fn from_url(url: String) -> Result(Config, Nil) {
 fn adapter() -> sql.Adapter(pg_value.Value) {
   sql.adapter()
   |> sql.on_placeholder(fn(i) { "$" <> int.to_string(i) })
-  |> sql.on_identifier(function.identity)
+  |> sql.on_identifier(fn(ident) { "\"" <> ident <> "\"" })
   |> sql.on_value(pg_value.to_string)
   |> sql.on_int(pg_value.int)
   |> sql.on_text(pg_value.text)
