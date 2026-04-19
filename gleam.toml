@@ -1,6 +1,7 @@
 name = "based_pg"
 version = "5.0.0"
 description = "A postgres adapter for based"
+licenses = ["Apache-2.0"]
 
 repository = { type = "github", user = "stndrs", repo = "based_pg" }
 
