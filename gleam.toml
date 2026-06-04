@@ -1,5 +1,5 @@
 name = "based_pg"
-version = "5.0.0"
+version = "5.0.1"
 description = "A postgres adapter for based"
 licenses = ["Apache-2.0"]
 

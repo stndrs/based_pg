@@ -1,5 +1,9 @@
 # Changelog
 
+## v5.0.1
+
+- Updated `based`, `pgl`, `pg_value`, and `gleam_stdlib`
+
 ## v5.0.0
 
 ### Breaking changes
