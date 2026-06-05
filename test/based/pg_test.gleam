@@ -20,7 +20,7 @@ fn global_db() -> based.Db(pg_value.Value, pg.Connection) {
       |> pg.database("based_pg")
       |> pg.username("postgres")
       |> pg.password("postgres")
-      |> pg.port(54_322)
+      |> pg.port(5432)
       |> pg.ssl(pg.SslDisabled)
       |> pg.new
 
@@ -927,7 +927,7 @@ pub fn rows_as_dict_test() {
     |> pg.database("based_pg")
     |> pg.username("postgres")
     |> pg.password("postgres")
-    |> pg.port(54_322)
+    |> pg.port(5432)
     |> pg.ssl(pg.SslDisabled)
     |> pg.rows_as_dict(True)
     |> pg.new
